@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "667029338646",
+    "project_id": "mata3mna-43574",
+    "storage_bucket": "mata3mna-43574.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:667029338646:android:3c37665e497ecb4cf31337",
+        "android_client_info": {
+          "package_name": "com.example.mata3mna"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "667029338646-ppf6q7tkmvss5snecj6f9u8i130htc8d.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.mata3mna",
+            "certificate_hash": "8e535211fea829f5cf50115851e6ddf99124bd71"
+          }
+        },
+        {
+          "client_id": "667029338646-mm72sl4ucjubhfcbejohimpe6m2068ch.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBmtirn-AkibuZrey6yWclb7TUDhSG71NI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "667029338646-mm72sl4ucjubhfcbejohimpe6m2068ch.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
