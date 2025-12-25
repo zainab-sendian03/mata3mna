@@ -20,7 +20,7 @@ class SignUpPage extends StatefulWidget {
 
 class _SignUpPageState extends State<SignUpPage> {
   final authController = Get.find<AuthController>();
-
+  final formKey_signUp = GlobalKey<FormState>();
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -39,7 +39,7 @@ class _SignUpPageState extends State<SignUpPage> {
               padding: EdgeInsets.symmetric(horizontal: 5.w, vertical: 1.h),
 
               child: Form(
-                key: authController.formKey_signUp,
+                key: formKey_signUp,
                 child: Column(
                   children: [
                     Row(
@@ -54,13 +54,6 @@ class _SignUpPageState extends State<SignUpPage> {
                       ],
                     ),
                     SizedBox(height: height * 0.06),
-
-                    CustomTextFormField(
-                      hintText: "اسم المستخدم",
-                      controller: authController.usernameController,
-                      min: 3,
-                      max: 100,
-                    ),
                     const SizedBox(height: 20),
                     CustomTextFormField(
                       validationType: "email",
@@ -99,11 +92,12 @@ class _SignUpPageState extends State<SignUpPage> {
                             authController.signupEmailController.text,
                             authController.signupPasswordController.text,
                             authController.confirmPasswordController.text,
+                            formKey_signUp,
                           );
                         },
                         label: authController.isLoading.value
                             ? "الارجاء الانتظار...."
-                            : "تسجيل الدخول",
+                            : "إنشاء الحساب",
                         color: authController.isLoading.value
                             ? AppColors.primaryLight.withOpacity(0.6)
                             : AppColors.primaryLight,
@@ -117,7 +111,7 @@ class _SignUpPageState extends State<SignUpPage> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          "لديك حساب؟",
+                          "لديك حساب مسبقاً؟",
                           style: theme.textTheme.labelSmall?.copyWith(
                             color: theme.colorScheme.onSurface,
                           ),

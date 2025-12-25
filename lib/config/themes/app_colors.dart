@@ -98,7 +98,7 @@ class AppColors {
     255,
     130,
     100,
-  ); // Lighter coral for dark
+  ); // Lighter coral for darkasaS
   static const Color secondaryVariantDark = Color.fromARGB(
     255,
     255,

@@ -18,4 +18,5 @@ abstract class AuthRepository {
   Future<Either<Failure, void>> sendPasswordResetEmail(String email);
   Future<Either<Failure, void>> sendEmailVerification();
   Future<Either<Failure, bool>> checkEmailVerification();
+  Future<Either<Failure, void>> applyEmailVerificationActionCode(String actionCode);
 }

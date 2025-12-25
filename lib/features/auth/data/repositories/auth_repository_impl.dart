@@ -99,4 +99,13 @@ class AuthRepositoryImpl implements AuthRepository {
       return Left(Failure(errMessage: e.toString(), statusCode: 500));
     }
   }
+
+  @override
+  Future<Either<Failure, void>> applyEmailVerificationActionCode(String actionCode) async {
+    try {
+      return await _remoteDataSource.applyEmailVerificationActionCode(actionCode);
+    } catch (e) {
+      return Left(Failure(errMessage: e.toString(), statusCode: 500));
+    }
+  }
 }

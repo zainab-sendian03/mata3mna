@@ -43,7 +43,13 @@ dependencies:
   firebase_auth: ^6.1.1
   firebase_core: ^4.2.0
   firebase_app_check: ^0.4.1+1
-
+  cloud_firestore: ^6.1.0
+  image_picker: ^1.0.4
+  flutter_slidable: ^4.0.3
+  cached_network_image: ^3.4.1
+  supabase_flutter: ^2.0.0
+  url_launcher: ^6.3.1
+  path_provider: ^2.1.1
 
 
   # The following adds the Cupertino Icons font to your application.
@@ -61,6 +67,8 @@ flutter_launcher_icons:
   image_path: "assets/images/logoM.png"
   adaptive_icon_background: "#ffffff"
   adaptive_icon_foreground: "assets/images/logoM.png"
+  remove_alpha_android: true
+  remove_alpha_ios: true
   name: "مطاعمنا"
 
   # The "flutter_lints" package below contains a set of recommended lints to

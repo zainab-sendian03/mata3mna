@@ -37,6 +37,13 @@
             {
               "client_id": "667029338646-mm72sl4ucjubhfcbejohimpe6m2068ch.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "667029338646-0mt8otj92973n9ko2gugjvq2gt8afivq.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.mata3mna"
+              }
             }
           ]
         }

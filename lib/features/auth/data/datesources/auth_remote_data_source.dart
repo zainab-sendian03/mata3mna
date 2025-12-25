@@ -20,6 +20,7 @@ abstract class AuthRemoteDataSource {
   Future<Either<Failure, void>> sendPasswordResetEmail(String email);
   Future<Either<Failure, void>> sendEmailVerification();
   Future<Either<Failure, bool>> checkEmailVerification();
+  Future<Either<Failure, void>> applyEmailVerificationActionCode(String actionCode);
 }
 
 class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
@@ -275,6 +276,34 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
       await user.reload();
       final refreshedUser = _auth.currentUser;
       return Right(refreshedUser?.emailVerified ?? false);
+    } catch (e) {
+      return Left(Failure(errMessage: e.toString(), statusCode: 500));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> applyEmailVerificationActionCode(String actionCode) async {
+    try {
+      await _auth.applyActionCode(actionCode);
+      return Right(null);
+    } on FirebaseAuthException catch (e) {
+      final statusCode = _mapFirebaseErrorToStatusCode(e.code);
+      String errorMessage = e.message ?? e.code;
+      
+      // Provide user-friendly error messages
+      if (e.code == 'expired-action-code') {
+        errorMessage = 'انتهت صلاحية رابط التحقق. يرجى طلب رابط جديد';
+      } else if (e.code == 'invalid-action-code') {
+        errorMessage = 'رابط التحقق غير صحيح أو تم استخدامه مسبقاً';
+      } else if (e.code == 'user-disabled') {
+        errorMessage = 'تم تعطيل هذا الحساب';
+      } else if (e.code == 'user-not-found') {
+        errorMessage = 'لم يتم العثور على المستخدم';
+      }
+      
+      return Left(
+        Failure(errMessage: errorMessage, statusCode: statusCode),
+      );
     } catch (e) {
       return Left(Failure(errMessage: e.toString(), statusCode: 500));
     }

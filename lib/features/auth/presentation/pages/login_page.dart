@@ -6,9 +6,7 @@ import 'package:mata3mna/config/themes/assets.dart';
 import 'package:mata3mna/core/constants/customAppBar.dart';
 import 'package:mata3mna/core/constants/customButton.dart';
 import 'package:mata3mna/core/constants/customTextForm.dart';
-import 'package:mata3mna/core/constants/screen_extension.dart';
 import 'package:mata3mna/features/auth/presentation/controllers/auth_controller.dart';
-import 'package:sizer/sizer.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -19,10 +17,25 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   AuthController authController = Get.find<AuthController>();
+  final formKey_login = GlobalKey<FormState>();
+  
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final height = context.screenHeight;
+    final colorScheme = theme.colorScheme;
+    final screenWidth = MediaQuery.of(context).size.width;
+    
+    // Responsive breakpoints
+    final isDesktop = screenWidth > 1200;
+    final isTablet = screenWidth > 768 && screenWidth <= 1200;
+    
+    // Responsive sizing - cap at reasonable maximums for desktop
+    final horizontalPadding = isDesktop ? 40.0 : (isTablet ? 32.0 : 20.0);
+    final verticalPadding = isDesktop ? 40.0 : (isTablet ? 32.0 : 24.0);
+    final titleSize = isDesktop ? 28.0 : (isTablet ? 26.0 : 24.0);
+    final spacing = isDesktop ? 24.0 : (isTablet ? 20.0 : 16.0);
+    final titleSpacing = isDesktop ? 32.0 : (isTablet ? 28.0 : 24.0);
+    final forgotPasswordSize = isDesktop ? 15.0 : (isTablet ? 14.0 : 13.0);
 
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 249, 245, 237),
@@ -36,9 +49,12 @@ class _LoginPageState extends State<LoginPage> {
         ),
       ),
       body: SingleChildScrollView(
-        padding: EdgeInsets.symmetric(horizontal: 5.w, vertical: 1.h),
+        padding: EdgeInsets.symmetric(
+          horizontal: horizontalPadding,
+          vertical: verticalPadding,
+        ),
         child: Form(
-          key: authController.formKey_login,
+          key: formKey_login,
           child: Column(
             children: [
               /// --- Logo or title ---
@@ -48,12 +64,13 @@ class _LoginPageState extends State<LoginPage> {
                   Text(
                     "أهلاً بك، سجل دخول مطعمك !",
                     style: theme.textTheme.headlineSmall?.copyWith(
-                      color: theme.colorScheme.onSurface,
+                      fontSize: titleSize,
+                      color: colorScheme.onSurface,
                     ),
                   ),
                 ],
               ),
-              SizedBox(height: height * 0.06),
+              SizedBox(height: titleSpacing),
 
               /// --- Email ---
               CustomTextFormField(
@@ -62,7 +79,7 @@ class _LoginPageState extends State<LoginPage> {
                 min: 10,
                 max: 100,
               ),
-              SizedBox(height: height * 0.03),
+              SizedBox(height: spacing),
 
               /// --- Password ---
               CustomTextFormField(
@@ -74,14 +91,14 @@ class _LoginPageState extends State<LoginPage> {
                 showVisPasswordToggle: true,
               ),
 
-              SizedBox(height: height * 0.02),
+              SizedBox(height: spacing * 0.75),
 
               /// --- Forgot Password ---
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
                   style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     minimumSize: Size(0, 0),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
@@ -89,14 +106,14 @@ class _LoginPageState extends State<LoginPage> {
                   child: Text(
                     "نسيت كلمة المرور؟",
                     style: TextStyle(
-                      color: theme.colorScheme.onSurface,
-                      fontSize: 12.sp,
+                      color: colorScheme.onSurface,
+                      fontSize: forgotPasswordSize,
                     ),
                   ),
                 ),
               ),
 
-              SizedBox(height: height * 0.02),
+              SizedBox(height: spacing * 0.75),
 
               /// --- Login button ---
               Obx(
@@ -105,6 +122,7 @@ class _LoginPageState extends State<LoginPage> {
                     await authController.signInWithEmail(
                       authController.loginEmailController.text,
                       authController.loginPasswordController.text,
+                      formKey_login,
                     );
                   },
                   theme: theme,
@@ -117,9 +135,9 @@ class _LoginPageState extends State<LoginPage> {
                   icon: null,
                 ),
               ),
-              SizedBox(height: 4.h),
+              SizedBox(height: spacing * 1.5),
               Padding(
-                padding: EdgeInsets.symmetric(vertical: 3.h),
+                padding: EdgeInsets.symmetric(vertical: spacing),
                 child: Row(
                   children: [
                     Expanded(
@@ -182,7 +200,7 @@ class _LoginPageState extends State<LoginPage> {
                 ],
               ),
 
-              SizedBox(height: 3.h),
+              SizedBox(height: spacing),
 
               /// --- Sign up text ---
               Row(
@@ -222,12 +240,19 @@ class _LoginPageState extends State<LoginPage> {
   void _showForgotPasswordDialog(BuildContext context) {
     final emailController = TextEditingController();
     final formKey = GlobalKey<FormState>();
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth > 1200;
+    final isTablet = screenWidth > 768 && screenWidth <= 1200;
+    final dialogWidth = isDesktop ? 500.0 : (isTablet ? 450.0 : screenWidth * 0.9);
+    final padding = isDesktop ? 32.0 : (isTablet ? 28.0 : 24.0);
+    final spacing = isDesktop ? 20.0 : (isTablet ? 18.0 : 16.0);
 
     Get.dialog(
       Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: EdgeInsets.all(4.w),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          width: dialogWidth,
+          padding: EdgeInsets.all(padding),
           child: Form(
             key: formKey,
             child: Column(
@@ -236,31 +261,47 @@ class _LoginPageState extends State<LoginPage> {
               children: [
                 Text(
                   "إعادة تعيين كلمة المرور",
-                  style: Theme.of(context).textTheme.titleLarge,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
-                SizedBox(height: 2.h),
+                SizedBox(height: spacing * 0.5),
                 Text(
                   "أدخل بريدك الإلكتروني وسنرسل لك رابط إعادة التعيين",
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.7),
+                      ),
                 ),
-                SizedBox(height: 2.h),
+                SizedBox(height: spacing),
                 CustomTextFormField(
                   hintText: "البريد الإلكتروني",
                   controller: emailController,
                   min: 10,
                   max: 100,
                 ),
-                SizedBox(height: 3.h),
+                SizedBox(height: spacing * 0.75),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     TextButton(
                       onPressed: () => Get.back(),
-                      child: Text("إلغاء"),
+                      child: Text(
+                        "إلغاء",
+                        style: TextStyle(fontSize: isDesktop ? 16 : 14),
+                      ),
                     ),
-                    SizedBox(width: 2.w),
+                    SizedBox(width: 12),
                     Obx(
                       () => ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isDesktop ? 24 : 20,
+                            vertical: isDesktop ? 16 : 12,
+                          ),
+                        ),
                         onPressed: authController.isLoading.value
                             ? null
                             : () async {
@@ -269,19 +310,21 @@ class _LoginPageState extends State<LoginPage> {
                                     emailController.text.trim(),
                                   );
                                   Navigator.pop(context);
-
                                   Get.back();
                                 }
                               },
                         child: authController.isLoading.value
                             ? SizedBox(
-                                width: 16,
-                                height: 16,
+                                width: 20,
+                                height: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
                                 ),
                               )
-                            : Text("إرسال"),
+                            : Text(
+                                "إرسال",
+                                style: TextStyle(fontSize: isDesktop ? 16 : 14),
+                              ),
                       ),
                     ),
                   ],
