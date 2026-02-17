@@ -27,13 +27,13 @@ class _RestaurantInfoScreenState extends State<RestaurantInfoScreen> {
   final _phoneController = TextEditingController();
   final _descriptionController = TextEditingController();
   final ImagePicker _imagePicker = ImagePicker();
-  final RestaurantFirestoreService _restaurantService =
-      Get.find<RestaurantFirestoreService>();
+  final RestaurantSupabaseService _restaurantService =
+      Get.find<RestaurantSupabaseService>();
   final SupabaseStorageService _storageService =
       Get.find<SupabaseStorageService>();
   final CacheHelper _cacheHelper = Get.find<CacheHelper>();
-  final LocationFirestoreService _locationService =
-      Get.find<LocationFirestoreService>();
+  final LocationSupabaseService _locationService =
+      Get.find<LocationSupabaseService>();
 
   // Check if in edit mode - either from widget.itemData or from Get.arguments
   bool get _isEditMode {
@@ -75,16 +75,25 @@ class _RestaurantInfoScreenState extends State<RestaurantInfoScreen> {
       return;
     }
 
-    _loadLocations();
+    // Load locations first, then restaurant info if in edit mode
     if (_isEditMode) {
+      // In edit mode, load locations as part of restaurant info loading
+      // to ensure we have the latest city names
       _loadRestaurantInfo();
+    } else {
+      // In add mode, just load locations
+      _loadLocations();
     }
   }
 
-  Future<void> _loadLocations() async {
+  Future<void> _loadLocations({bool forceRefresh = false}) async {
     setState(() => _isLoadingLocations = true);
     try {
-      // Load governorates
+      print(
+        '[RestaurantInfoScreen] Loading locations (forceRefresh: $forceRefresh)',
+      );
+
+      // Load governorates (force refresh to get latest data)
       _governorates = await _locationService.getGovernorates();
 
       // If no governorates exist, initialize default locations
@@ -93,8 +102,12 @@ class _RestaurantInfoScreenState extends State<RestaurantInfoScreen> {
         _governorates = await _locationService.getGovernorates();
       }
 
-      // Load cities grouped by governorate
+      // Load cities grouped by governorate (force refresh to get latest data)
       _citiesByGovernorate = await _locationService.getCitiesByGovernorateMap();
+
+      print(
+        '[RestaurantInfoScreen] Loaded ${_governorates.length} governorates and ${_citiesByGovernorate.length} governorate groups',
+      );
 
       if (mounted) {
         setState(() {});
@@ -112,6 +125,42 @@ class _RestaurantInfoScreenState extends State<RestaurantInfoScreen> {
     }
   }
 
+  /// Find a similar city in the list by normalizing names
+  /// Handles cases like "جديدة عرطوزز البلد" matching "جديدة عرطوز البلد"
+  String? _findSimilarCity(String savedCity, List<String> availableCities) {
+    if (availableCities.isEmpty) return null;
+
+    // Normalize the saved city name (remove repeated consecutive characters)
+    final normalizedSaved = _normalizeCityName(savedCity);
+
+    for (final city in availableCities) {
+      final normalizedCity = _normalizeCityName(city);
+      if (normalizedSaved == normalizedCity) {
+        return city;
+      }
+    }
+
+    return null;
+  }
+
+  /// Normalize city name by removing repeated consecutive characters
+  String _normalizeCityName(String city) {
+    if (city.isEmpty) return city;
+
+    final buffer = StringBuffer();
+    String? lastChar;
+
+    for (int i = 0; i < city.length; i++) {
+      final char = city[i];
+      if (char != lastChar) {
+        buffer.write(char);
+        lastChar = char;
+      }
+    }
+
+    return buffer.toString().trim();
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -123,29 +172,40 @@ class _RestaurantInfoScreenState extends State<RestaurantInfoScreen> {
   Future<void> _loadRestaurantInfo() async {
     setState(() => _isLoading = true);
     try {
-      // First try to use data passed as argument
-      Map<String, dynamic>? restaurantInfo = _restaurantData;
+      // Reload locations first to ensure we have the latest city names
+      // Force refresh to get the latest data from server
+      await _loadLocations(forceRefresh: true);
 
-      // If not provided, load from Firestore
-      if (restaurantInfo == null) {
-        final ownerId = _cacheHelper.getData(key: 'userUid') as String?;
-        final ownerEmail = _cacheHelper.getData(key: 'userEmail') as String?;
-        if (ownerId == null || ownerId.isEmpty) {
-          print('[RestaurantInfoScreen] No ownerId found');
-          return;
-        }
+      // Always load from Firestore first to get the latest data
+      // (even if arguments are provided, Firestore has the most up-to-date info)
+      Map<String, dynamic>? restaurantInfo;
+      final ownerId = _cacheHelper.getData(key: 'userUid') as String?;
+      final ownerEmail = _cacheHelper.getData(key: 'userEmail') as String?;
+
+      if (ownerId != null && ownerId.isNotEmpty) {
         print(
-          '[RestaurantInfoScreen] Loading restaurant info for ownerId: $ownerId, email: $ownerEmail',
+          '[RestaurantInfoScreen] Loading restaurant info from Firestore for ownerId: $ownerId, email: $ownerEmail',
         );
-        restaurantInfo = await _restaurantService.getRestaurantInfoByOwnerId(
+        restaurantInfo = await _restaurantService.getRestaurantByOwnerId(
           ownerId,
-          ownerEmail: ownerEmail,
         );
-        print('[RestaurantInfoScreen] Loaded restaurant info: $restaurantInfo');
-      } else {
         print(
-          '[RestaurantInfoScreen] Using restaurant data from arguments: $restaurantInfo',
+          '[RestaurantInfoScreen] Loaded restaurant info from Firestore: $restaurantInfo',
         );
+      }
+
+      // Fallback to arguments only if Firestore load failed
+      if (restaurantInfo == null) {
+        restaurantInfo = _restaurantData;
+        if (restaurantInfo != null) {
+          print(
+            '[RestaurantInfoScreen] Using restaurant data from arguments (Firestore load failed): $restaurantInfo',
+          );
+        } else {
+          print(
+            '[RestaurantInfoScreen] No restaurant info found in Firestore or arguments',
+          );
+        }
       }
 
       if (restaurantInfo != null && mounted) {
@@ -153,9 +213,44 @@ class _RestaurantInfoScreenState extends State<RestaurantInfoScreen> {
         _phoneController.text = restaurantInfo['phone'] as String? ?? '';
         _descriptionController.text =
             restaurantInfo['description'] as String? ?? '';
-        _selectedGovernorate = restaurantInfo['governorate'] as String?;
-        _selectedCity = restaurantInfo['city'] as String?;
+        _selectedGovernorate = (restaurantInfo['governorate'] as String?)
+            ?.trim();
+        final savedCity = (restaurantInfo['city'] as String?)?.trim();
         _existingLogoUrl = restaurantInfo['logoPath'] as String?;
+
+        // Try to match the saved city with the updated city list
+        if (savedCity != null &&
+            savedCity.isNotEmpty &&
+            _selectedGovernorate != null) {
+          final availableCities =
+              _citiesByGovernorate[_selectedGovernorate] ?? [];
+          final trimmedSavedCity = savedCity.trim();
+
+          // First, try exact match
+          if (availableCities.contains(trimmedSavedCity)) {
+            _selectedCity = trimmedSavedCity;
+          } else {
+            // Try to find a similar city (normalized comparison)
+            final matchedCity = _findSimilarCity(
+              trimmedSavedCity,
+              availableCities,
+            );
+            if (matchedCity != null) {
+              print(
+                '[RestaurantInfoScreen] Matched old city "$trimmedSavedCity" with new city "$matchedCity"',
+              );
+              _selectedCity = matchedCity;
+            } else {
+              // City was deleted from database, clear selection
+              print(
+                '[RestaurantInfoScreen] City "$trimmedSavedCity" not found in database, clearing selection',
+              );
+              _selectedCity = null;
+            }
+          }
+        } else {
+          _selectedCity = savedCity;
+        }
 
         setState(() {});
       }
@@ -332,14 +427,40 @@ class _RestaurantInfoScreenState extends State<RestaurantInfoScreen> {
     final uniqueCities = <String>[];
     final seenCities = <String>{};
     for (final city in cities) {
-      if (!seenCities.contains(city)) {
-        uniqueCities.add(city);
-        seenCities.add(city);
+      final trimmedCity = city.trim();
+      if (trimmedCity.isNotEmpty && !seenCities.contains(trimmedCity)) {
+        uniqueCities.add(trimmedCity);
+        seenCities.add(trimmedCity);
       }
     }
 
+    // Ensure selected city value matches exactly one item (trim it)
+    // Only use cities that exist in the database (don't add deleted cities)
+    final selectedCityValue = _selectedCity?.trim();
+    final validSelectedCity =
+        selectedCityValue != null &&
+            selectedCityValue.isNotEmpty &&
+            uniqueCities.contains(selectedCityValue)
+        ? selectedCityValue
+        : null;
+
+    // If selected city is not in the list, clear it
+    if (_selectedCity != null && validSelectedCity == null) {
+      print(
+        '[RestaurantInfoScreen] Selected city "${_selectedCity}" not found in database, clearing selection',
+      );
+      // Clear selection in next frame to avoid setState during build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _selectedCity = null;
+          });
+        }
+      });
+    }
+
     return DropdownButtonFormField<String>(
-      value: _selectedCity,
+      value: validSelectedCity,
       decoration: InputDecoration(
         labelText: 'المدينة / المنطقة',
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),

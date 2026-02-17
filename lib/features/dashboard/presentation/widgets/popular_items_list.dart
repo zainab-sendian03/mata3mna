@@ -5,17 +5,14 @@ import 'package:flutter/material.dart';
 class PopularItemsList extends StatelessWidget {
   final List<Map<String, dynamic>> items;
 
-  const PopularItemsList({
-    super.key,
-    required this.items,
-  });
+  const PopularItemsList({super.key, required this.items});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final screenWidth = MediaQuery.of(context).size.width;
-    
+
     // Responsive sizing - cap at reasonable maximums for desktop
     final isDesktop = screenWidth > 1200;
     final isTablet = screenWidth > 768 && screenWidth <= 1200;
@@ -41,17 +38,24 @@ class PopularItemsList extends StatelessWidget {
       );
     }
 
+    // Limit items to prevent overflow (max 5 items)
+    final limitedItems = items.take(5).toList();
+
     return Container(
+      height: (limitedItems.length * 80.0).clamp(
+        80.0,
+        isDesktop ? 400.0 : (isTablet ? 350.0 : 300.0),
+      ),
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
       ),
       child: ListView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: items.length,
+        shrinkWrap: false,
+        physics: const ClampingScrollPhysics(),
+        itemCount: limitedItems.length,
         itemBuilder: (context, index) {
-          final item = items[index];
+          final item = limitedItems[index];
           final itemName = item['name'] ?? 'عنصر بدون اسم';
           final itemPrice = item['price'] ?? '0.00';
           final itemImage = item['image'] ?? '';
@@ -60,43 +64,45 @@ class PopularItemsList extends StatelessWidget {
           return ListTile(
             leading: itemImage.toString().isNotEmpty
                 ? (itemImage.toString().startsWith('http')
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: CachedNetworkImage(
-                          imageUrl: itemImage.toString(),
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: CachedNetworkImage(
+                            imageUrl: itemImage.toString(),
+                            width: imageSize,
+                            height: imageSize,
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) => Container(
+                              width: imageSize,
+                              height: imageSize,
+                              color: colorScheme.surfaceContainerHighest,
+                              child: const Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            ),
+                            errorWidget: (context, url, error) => Container(
+                              width: imageSize,
+                              height: imageSize,
+                              color: colorScheme.surfaceContainerHighest,
+                              child: Icon(
+                                Icons.restaurant_menu,
+                                size: iconSize,
+                                color: colorScheme.onSurface.withOpacity(0.3),
+                              ),
+                            ),
+                          ),
+                        )
+                      : Container(
                           width: imageSize,
                           height: imageSize,
-                          fit: BoxFit.cover,
-                          placeholder: (context, url) => Container(
-                            width: imageSize,
-                            height: imageSize,
-                            color: colorScheme.surfaceContainerHighest,
-                            child: const Center(
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
+                          color: colorScheme.surfaceContainerHighest,
+                          child: Icon(
+                            Icons.restaurant_menu,
+                            size: iconSize,
+                            color: colorScheme.onSurface.withOpacity(0.3),
                           ),
-                          errorWidget: (context, url, error) => Container(
-                            width: imageSize,
-                            height: imageSize,
-                            color: colorScheme.surfaceContainerHighest,
-                            child: Icon(
-                              Icons.restaurant_menu,
-                              size: iconSize,
-                              color: colorScheme.onSurface.withOpacity(0.3),
-                            ),
-                          ),
-                        ),
-                      )
-                    : Container(
-                        width: imageSize,
-                        height: imageSize,
-                        color: colorScheme.surfaceContainerHighest,
-                        child: Icon(
-                          Icons.restaurant_menu,
-                          size: iconSize,
-                          color: colorScheme.onSurface.withOpacity(0.3),
-                        ),
-                      ))
+                        ))
                 : Container(
                     width: imageSize,
                     height: imageSize,
@@ -140,4 +146,3 @@ class PopularItemsList extends StatelessWidget {
     );
   }
 }
-

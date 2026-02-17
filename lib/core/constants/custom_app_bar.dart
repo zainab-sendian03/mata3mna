@@ -138,7 +138,6 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
       icon: const Icon(Icons.arrow_back_rounded),
       iconSize: 24,
       color: colorScheme.onSurface,
-      tooltip: 'Back',
       onPressed: onBackPressed ?? () => Navigator.of(context).pop(),
     );
   }

@@ -5,7 +5,10 @@ import 'package:mata3mna/features/dashboard/data/services/admin_firestore_servic
 import 'package:mata3mna/core/services/supabase_storage_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:io';
+import 'dart:typed_data';
 
 /// Screen for managing menu items in admin dashboard
 class AdminItemManagementScreen extends StatelessWidget {
@@ -18,126 +21,127 @@ class AdminItemManagementScreen extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final screenWidth = MediaQuery.of(context).size.width;
 
+    // Get category or restaurant from arguments if provided
+    final arguments = Get.arguments;
+    Future.delayed(Duration(milliseconds: 100), () {
+      if (arguments != null && arguments is Map) {
+        if (arguments['category'] != null) {
+          controller.selectedCategory.value = arguments['category'] as String;
+        }
+        if (arguments['restaurantId'] != null) {
+          controller.setRestaurantFilter(
+            arguments['restaurantId'] as String?,
+            restaurantName: arguments['restaurantName'] as String?,
+          );
+        } else {
+          controller.setRestaurantFilter(null);
+        }
+      } else {
+        controller.setRestaurantFilter(null);
+      }
+    });
+
     // Responsive breakpoints
     final isDesktop = screenWidth > 1200;
     final isTablet = screenWidth > 768 && screenWidth <= 1200;
 
     return Obx(() {
-      return Column(
-        children: [
-          // Header bar (when AppBar is hidden)
-          Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: isDesktop ? 24 : (isTablet ? 20 : 16),
-              vertical: isDesktop ? 16 : 12,
-            ),
-            decoration: BoxDecoration(
-              color: colorScheme.surface,
-              border: Border(
-                bottom: BorderSide(color: colorScheme.outline.withOpacity(0.2)),
+      return Material(
+        child: Column(
+          children: [
+            // Header bar (when AppBar is hidden)
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: isDesktop ? 24 : 16,
+                vertical: isDesktop ? 16 : 12,
               ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'إدارة العناصر',
-                    style: isDesktop
-                        ? theme.textTheme.displaySmall?.copyWith(
-                            fontSize: 25,
-                            fontWeight: FontWeight.bold,
-                            color: colorScheme.onSurface,
-                          )
-                        : theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: colorScheme.onSurface,
-                          ),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                border: Border(
+                  bottom: BorderSide(
+                    color: colorScheme.outline.withOpacity(0.2),
                   ),
                 ),
-                IconButton(
-                  icon: Icon(Icons.add, color: colorScheme.onSurface),
-                  onPressed: () =>
-                      _showAddEditItemDialog(context, controller, null),
-                ),
-                IconButton(
-                  icon: Icon(Icons.refresh, color: colorScheme.onSurface),
-                  onPressed: () => controller.refresh(),
-                ),
-              ],
-            ),
-          ),
-
-          // Search and filter bar
-          Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: isDesktop ? 40 : (isTablet ? 32 : 20),
-              vertical: isDesktop ? 24 : (isTablet ? 20 : 16),
-            ),
-            decoration: BoxDecoration(
-              color: colorScheme.surface,
-              border: Border(
-                bottom: BorderSide(color: colorScheme.outline.withOpacity(0.2)),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.arrow_back, color: colorScheme.onSurface),
+                    onPressed: () => Get.back(),
+                  ),
+                  Expanded(
+                    child: Text(
+                      controller.selectedRestaurantName.value.isNotEmpty
+                          ? 'عناصر ${controller.selectedRestaurantName.value}'
+                          : 'إدارة العناصر',
+                      style: isDesktop
+                          ? theme.textTheme.displaySmall?.copyWith(
+                              fontSize: 25,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurface,
+                            )
+                          : theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurface,
+                            ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.add, color: colorScheme.onSurface),
+                    onPressed: () =>
+                        _showAddEditItemDialog(context, controller, null),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.refresh, color: colorScheme.onSurface),
+                    onPressed: () => controller.refresh(),
+                  ),
+                ],
               ),
             ),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: isDesktop ? 800 : double.infinity,
+
+            // Search and filter bar
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: isDesktop ? 40 : (isTablet ? 32 : 20),
+                vertical: isDesktop ? 24 : (isTablet ? 20 : 16),
+              ),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                border: Border(
+                  bottom: BorderSide(
+                    color: colorScheme.outline.withOpacity(0.2),
+                  ),
                 ),
-                child: Column(
-                  children: [
-                    // Search
-                    TextField(
-                      onChanged: (value) =>
-                          controller.searchQuery.value = value,
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        color: colorScheme.onSurface.withOpacity(0.7),
-                        fontSize: isDesktop ? 18 : (isTablet ? 16 : 14),
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'بحث في العناصر...',
-                        hintStyle: theme.textTheme.bodyLarge?.copyWith(
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: isDesktop ? 800 : double.infinity,
+                  ),
+                  child: Column(
+                    children: [
+                      // Search
+                      TextField(
+                        onChanged: (value) =>
+                            controller.searchQuery.value = value,
+                        style: theme.textTheme.bodyLarge?.copyWith(
                           color: colorScheme.onSurface.withOpacity(0.7),
                           fontSize: isDesktop ? 18 : (isTablet ? 16 : 14),
                         ),
-                        prefixIcon: const Icon(Icons.search),
-                        suffixIcon: controller.searchQuery.value.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear),
-                                onPressed: () =>
-                                    controller.searchQuery.value = '',
-                              )
-                            : null,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: colorScheme.surfaceContainerHighest,
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: isDesktop ? 16 : 12,
-                          vertical: isDesktop ? 16 : 14,
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: isDesktop ? 16 : 12),
-                    // Category filter
-                    Obx(() {
-                      if (controller.categories.isEmpty)
-                        return SizedBox.shrink();
-                      return DropdownButtonFormField<String>(
-                        value: controller.selectedCategory.value.isEmpty
-                            ? 'جميع العناصر'
-                            : controller.selectedCategory.value,
-                        style: TextStyle(
-                          fontSize: isDesktop ? 16.0 : (isTablet ? 15.0 : 14.0),
-                        ),
                         decoration: InputDecoration(
-                          labelText: 'الفئة',
-                          labelStyle: TextStyle(
-                            fontSize: isDesktop
-                                ? 15.0
-                                : (isTablet ? 14.0 : 13.0),
+                          hintText: 'بحث في العناصر...',
+                          hintStyle: theme.textTheme.bodyLarge?.copyWith(
+                            color: colorScheme.onSurface.withOpacity(0.7),
+                            fontSize: isDesktop ? 18 : (isTablet ? 16 : 14),
                           ),
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: controller.searchQuery.value.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () =>
+                                      controller.searchQuery.value = '',
+                                )
+                              : null,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -148,108 +152,227 @@ class AdminItemManagementScreen extends StatelessWidget {
                             vertical: isDesktop ? 16 : 14,
                           ),
                         ),
-                        items: controller.categories.map((cat) {
-                          return DropdownMenuItem(
-                            value: cat,
-                            child: Text(
-                              cat,
-                              style: TextStyle(
-                                fontSize: isDesktop
-                                    ? 16.0
-                                    : (isTablet ? 15.0 : 14.0),
-                              ),
+                      ),
+                      SizedBox(height: isDesktop ? 16 : 12),
+                      // Category filter
+                      Obx(() {
+                        if (controller.categories.isEmpty)
+                          return SizedBox.shrink();
+                        return DropdownButtonFormField<String>(
+                          value: controller.selectedCategory.value.isEmpty
+                              ? 'جميع العناصر'
+                              : controller.selectedCategory.value,
+                          style: TextStyle(
+                            fontSize: isDesktop
+                                ? 16.0
+                                : (isTablet ? 15.0 : 14.0),
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'الفئة',
+                            labelStyle: TextStyle(
+                              fontSize: isDesktop
+                                  ? 15.0
+                                  : (isTablet ? 14.0 : 13.0),
                             ),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          controller.selectedCategory.value =
-                              value ?? 'جميع العناصر';
-                        },
-                      );
-                    }),
-                  ],
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: colorScheme.surfaceContainerHighest,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: isDesktop ? 16 : 12,
+                              vertical: isDesktop ? 16 : 14,
+                            ),
+                          ),
+                          items: controller.categories.map((cat) {
+                            return DropdownMenuItem(
+                              value: cat,
+                              child: Text(
+                                cat,
+                                style: TextStyle(
+                                  fontSize: isDesktop
+                                      ? 16.0
+                                      : (isTablet ? 15.0 : 14.0),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            controller.selectedCategory.value =
+                                value ?? 'جميع العناصر';
+                          },
+                        );
+                      }),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
 
-          // Items list
-          Expanded(
-            child: controller.filteredItems.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.restaurant_menu,
-                          size: isDesktop ? 64.0 : (isTablet ? 56.0 : 48.0),
-                          color: colorScheme.onSurface.withOpacity(0.5),
-                        ),
-                        SizedBox(height: isDesktop ? 24 : (isTablet ? 20 : 16)),
-                        Text(
-                          controller.searchQuery.value.isNotEmpty ||
-                                  controller.selectedCategory.value.isNotEmpty
-                              ? 'لا توجد نتائج'
-                              : 'لا توجد عناصر',
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: colorScheme.onSurface.withOpacity(0.7),
-                            fontSize: isDesktop ? 18 : (isTablet ? 16 : 14),
+            // Items list
+            Expanded(
+              child: controller.filteredItems.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.restaurant_menu,
+                            size: isDesktop ? 64.0 : (isTablet ? 56.0 : 48.0),
+                            color: colorScheme.onSurface.withOpacity(0.5),
                           ),
-                        ),
-                      ],
-                    ),
-                  )
-                : Center(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: isDesktop ? 1400 : double.infinity,
-                      ),
-                      child: isDesktop
-                          ? GridView.builder(
-                              padding: EdgeInsets.all(24),
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 2,
-                                    crossAxisSpacing: 20,
-                                    mainAxisSpacing: 20,
-                                    childAspectRatio: 3,
-                                  ),
-                              itemCount: controller.filteredItems.length,
-                              itemBuilder: (context, index) {
-                                final item = controller.filteredItems[index];
-                                return _buildItemCard(
-                                  context,
-                                  item,
-                                  controller,
-                                  theme,
-                                  colorScheme,
-                                  isDesktop,
-                                  isTablet,
-                                );
-                              },
-                            )
-                          : ListView.builder(
-                              padding: EdgeInsets.all(isTablet ? 20 : 16),
-                              itemCount: controller.filteredItems.length,
-                              itemBuilder: (context, index) {
-                                final item = controller.filteredItems[index];
-                                return _buildItemCard(
-                                  context,
-                                  item,
-                                  controller,
-                                  theme,
-                                  colorScheme,
-                                  isDesktop,
-                                  isTablet,
-                                );
-                              },
+                          SizedBox(
+                            height: isDesktop ? 24 : (isTablet ? 20 : 16),
+                          ),
+                          Text(
+                            controller.searchQuery.value.isNotEmpty ||
+                                    controller.selectedCategory.value.isNotEmpty
+                                ? 'لا توجد نتائج'
+                                : 'لا توجد عناصر',
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: colorScheme.onSurface.withOpacity(0.7),
+                              fontSize: isDesktop ? 18 : (isTablet ? 16 : 14),
                             ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: isDesktop ? 1400 : double.infinity,
+                        ),
+                        child: ListView.builder(
+                          padding: EdgeInsets.all(
+                            isDesktop ? 24 : (isTablet ? 20 : 16),
+                          ),
+                          itemCount: controller.filteredItems.length,
+                          itemBuilder: (context, index) {
+                            final item = controller.filteredItems[index];
+                            return _buildItemCard(
+                              context,
+                              item,
+                              controller,
+                              theme,
+                              colorScheme,
+                              isDesktop,
+                              isTablet,
+                            );
+                          },
+                        ),
+                      ),
                     ),
-                  ),
-          ),
-        ],
+            ),
+          ],
+        ),
       );
     });
+  }
+
+  /// Helper method to get owner info from item using restaurant_id
+  Future<Map<String, dynamic>?> _getOwnerInfo(Map<String, dynamic> item) async {
+    try {
+      final supabase = Supabase.instance.client;
+
+      final restaurantId = item['restaurant_id'];
+      if (restaurantId == null || restaurantId.toString().isEmpty) {
+        return null;
+      }
+
+      final restaurant = await supabase
+          .from('restaurants')
+          .select('owner_id, owner_email')
+          .eq('id', restaurantId)
+          .maybeSingle();
+
+      if (restaurant == null) return null;
+
+      final ownerId = restaurant['owner_id'] as String? ?? '';
+      final ownerEmail = restaurant['owner_email'] as String? ?? '';
+
+      // Try to get more info from users table
+      if (ownerId.isNotEmpty) {
+        try {
+          final userInfo = await supabase
+              .from('users')
+              .select('id, email, role')
+              .eq('id', ownerId)
+              .maybeSingle();
+
+          if (userInfo != null) {
+            return {
+              'id': ownerId,
+              'email': userInfo['email'] ?? ownerEmail,
+              'owner_email': ownerEmail,
+            };
+          }
+        } catch (e) {
+          print('[AdminItemManagementScreen] Error getting user info: $e');
+        }
+      }
+
+      return {'id': ownerId, 'email': ownerEmail, 'owner_email': ownerEmail};
+    } catch (e) {
+      print('[AdminItemManagementScreen] Error getting owner info: $e');
+      return null;
+    }
+  }
+
+  /// Helper method to get restaurant name from item using restaurant_id
+  Future<String> _getRestaurantName(Map<String, dynamic> item) async {
+    // First check if restaurant_name exists
+    if (item['restaurant_name'] != null &&
+        item['restaurant_name'].toString().isNotEmpty) {
+      return item['restaurant_name'].toString();
+    }
+
+    // If not, try to get from restaurant_id
+    if (item['restaurant_id'] != null) {
+      try {
+        final supabase = Supabase.instance.client;
+        final restaurant = await supabase
+            .from('restaurants')
+            .select('name')
+            .eq('id', item['restaurant_id'])
+            .maybeSingle();
+
+        if (restaurant != null && restaurant['name'] != null) {
+          return restaurant['name'].toString();
+        }
+      } catch (e) {
+        print('[AdminItemManagementScreen] Error getting restaurant name: $e');
+      }
+    }
+
+    return '';
+  }
+
+  /// Helper method to get category name from item
+  Future<String> _getCategoryName(
+    Map<String, dynamic> item,
+    AdminItemController controller,
+  ) async {
+    // First check if category name exists
+    if (item['category'] != null && item['category'].toString().isNotEmpty) {
+      return item['category'].toString();
+    }
+
+    // If not, try to get from category_id
+    if (item['category_id'] != null) {
+      try {
+        final adminService = Get.find<AdminFirestoreService>();
+        final categoryName = await adminService.getCategoryNameById(
+          item['category_id'],
+        );
+        if (categoryName != null && categoryName.isNotEmpty) {
+          return categoryName;
+        }
+      } catch (e) {
+        print('[AdminItemManagementScreen] Error getting category name: $e');
+      }
+    }
+
+    return 'غير مصنف';
   }
 
   Widget _buildItemCard(
@@ -263,155 +386,244 @@ class AdminItemManagementScreen extends StatelessWidget {
   ) {
     final imageUrl = item['image'] as String? ?? '';
     final imageSize = isDesktop ? 100.0 : (isTablet ? 80.0 : 60.0);
-    final cardPadding = isDesktop ? 24.0 : (isTablet ? 20.0 : 16.0);
+    final cardPadding = isDesktop ? 20.0 : (isTablet ? 20.0 : 16.0);
     final cardSpacing = isDesktop ? 20.0 : (isTablet ? 16.0 : 12.0);
+    final description = item['description']?.toString() ?? '';
+    final hasDescription = description.isNotEmpty;
 
-    return Card(
-      margin: EdgeInsets.only(bottom: isDesktop ? 10 : (isTablet ? 16 : 12)),
-      elevation: isDesktop ? 4 : 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: colorScheme.outline),
-      ),
-      child: Padding(
-        padding: EdgeInsets.all(cardPadding),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Image
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: imageUrl.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      width: imageSize,
-                      height: imageSize,
-                      fit: BoxFit.cover,
-                      errorWidget: (context, url, error) => Container(
-                        width: imageSize,
-                        height: imageSize,
-                        color: colorScheme.surfaceContainerHighest,
-                        child: Icon(
-                          Icons.fastfood,
-                          size: imageSize * 0.5,
-                          color: colorScheme.onSurface.withOpacity(0.5),
+    return StatefulBuilder(
+      builder: (context, setState) {
+        // Use a unique key for each item to track expansion state
+        final itemId = item['id'] as String? ?? '';
+        final expansionKey = '_desc_expanded_$itemId';
+        final isExpanded = item[expansionKey] as bool? ?? false;
+
+        return Card(
+          margin: EdgeInsets.only(
+            bottom: isDesktop ? 10 : (isTablet ? 16 : 12),
+          ),
+          elevation: isDesktop ? 4 : 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: colorScheme.outline),
+          ),
+          child: Padding(
+            padding: EdgeInsets.all(cardPadding),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Image
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: imageUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          width: imageSize,
+                          height: imageSize,
+                          fit: BoxFit.cover,
+                          errorWidget: (context, url, error) => Container(
+                            width: imageSize,
+                            height: imageSize,
+                            color: colorScheme.surfaceContainerHighest,
+                            child: Icon(
+                              Icons.fastfood,
+                              size: imageSize * 0.5,
+                              color: colorScheme.onSurface.withOpacity(0.5),
+                            ),
+                          ),
+                        )
+                      : Container(
+                          width: imageSize,
+                          height: imageSize,
+                          color: colorScheme.surfaceContainerHighest,
+                          child: Icon(
+                            Icons.fastfood,
+                            size: imageSize * 0.5,
+                            color: colorScheme.onSurface.withOpacity(0.5),
+                          ),
                         ),
-                      ),
-                    )
-                  : Container(
-                      width: imageSize,
-                      height: imageSize,
-                      color: colorScheme.surfaceContainerHighest,
-                      child: Icon(
-                        Icons.fastfood,
-                        size: imageSize * 0.5,
-                        color: colorScheme.onSurface.withOpacity(0.5),
-                      ),
-                    ),
-            ),
-            SizedBox(width: cardSpacing),
+                ),
+                SizedBox(width: cardSpacing),
 
-            // Item info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item['name'] ?? 'بدون اسم',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      fontSize: isDesktop ? 20 : (isTablet ? 18 : 16),
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Row(
+                // Item info - Flexible to expand with description
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: colorScheme.primaryContainer,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          item['category'] ?? 'غير مصنف',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onPrimaryContainer,
-                            fontWeight: FontWeight.w600,
-                            fontSize: isDesktop ? 13 : (isTablet ? 12 : 11),
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: 8),
                       Text(
-                        '${item['price'] ?? '0'} \$',
-                        style: theme.textTheme.titleMedium?.copyWith(
+                        item['name'] ?? 'بدون اسم',
+                        style: theme.textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: colorScheme.primary,
-                          fontSize: isDesktop ? 18 : (isTablet ? 16 : 14),
+                          fontSize: isDesktop ? 20 : (isTablet ? 18 : 16),
                         ),
                       ),
-                    ],
-                  ),
-                  if (item['restaurantName'] != null &&
-                      item['restaurantName'].toString().isNotEmpty) ...[
-                    SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.restaurant,
-                          size: 16,
-                          color: colorScheme.onSurface.withOpacity(0.6),
-                        ),
-                        SizedBox(width: 4),
-                        Text(
-                          item['restaurantName'].toString(),
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurface.withOpacity(0.7),
-                            fontSize: isDesktop ? 16 : (isTablet ? 15 : 14),
+                      SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: FutureBuilder<String>(
+                              future: _getCategoryName(item, controller),
+                              builder: (context, snapshot) {
+                                final categoryName =
+                                    snapshot.data ??
+                                    (item['category']?.toString() ??
+                                        'غير مصنف');
+                                return Text(
+                                  categoryName,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: colorScheme.onPrimaryContainer,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: isDesktop
+                                        ? 13
+                                        : (isTablet ? 12 : 11),
+                                  ),
+                                );
+                              },
+                            ),
                           ),
+                          SizedBox(width: 8),
+                          Text(
+                            '${item['price'] ?? '0'} \$',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.primary,
+                              fontSize: isDesktop ? 18 : (isTablet ? 16 : 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                      // Show restaurant name
+                      FutureBuilder<String>(
+                        future: _getRestaurantName(item),
+                        builder: (context, snapshot) {
+                          final restaurantName = snapshot.data ?? '';
+                          if (restaurantName.isEmpty) return SizedBox.shrink();
+
+                          return Column(
+                            children: [
+                              SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.restaurant,
+                                    size: 16,
+                                    color: colorScheme.onSurface.withOpacity(
+                                      0.6,
+                                    ),
+                                  ),
+                                  SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      restaurantName,
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: colorScheme.onSurface
+                                                .withOpacity(0.7),
+                                            fontSize: isDesktop
+                                                ? 16
+                                                : (isTablet ? 15 : 14),
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+
+                      if (hasDescription) ...[
+                        SizedBox(height: 4),
+                        Builder(
+                          builder: (context) {
+                            // Show "Read more" if description is long enough to potentially overflow 2 lines
+                            // Approximate: ~50 characters per line for Arabic text
+                            final shouldShowReadMore =
+                                description.length > 100 ||
+                                description.split('\n').length > 2;
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  description,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    fontSize: isDesktop
+                                        ? 16
+                                        : (isTablet ? 15 : 14),
+                                    color: colorScheme.onSurface.withOpacity(
+                                      0.6,
+                                    ),
+                                  ),
+                                  maxLines: isExpanded ? null : 2,
+                                  overflow: isExpanded
+                                      ? TextOverflow.visible
+                                      : TextOverflow.ellipsis,
+                                ),
+                                if (shouldShowReadMore)
+                                  GestureDetector(
+                                    onTap: () {
+                                      setState(() {
+                                        item[expansionKey] = !isExpanded;
+                                      });
+                                    },
+                                    child: Padding(
+                                      padding: EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        isExpanded ? 'اقرأ أقل' : 'اقرأ المزيد',
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              fontSize: isDesktop
+                                                  ? 13
+                                                  : (isTablet ? 12 : 11),
+                                              color: colorScheme.primary,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            );
+                          },
                         ),
                       ],
-                    ),
-                  ],
-                  if (item['description'] != null &&
-                      item['description'].toString().isNotEmpty) ...[
-                    SizedBox(height: 8),
-                    Text(
-                      item['description'].toString(),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontSize: isDesktop ? 16 : (isTablet ? 15 : 14),
-                        color: colorScheme.onSurface.withOpacity(0.6),
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-
-            // Actions
-            Column(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.edit),
-                  onPressed: () =>
-                      _showAddEditItemDialog(context, controller, item),
-                  color: colorScheme.primary,
+                    ],
+                  ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.delete),
-                  onPressed: () => _showDeleteDialog(context, controller, item),
-                  color: colorScheme.error,
+
+                // Actions - Aligned to top
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit),
+                      onPressed: () =>
+                          _showAddEditItemDialog(context, controller, item),
+                      color: colorScheme.primary,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete),
+                      onPressed: () =>
+                          _showDeleteDialog(context, controller, item),
+                      color: colorScheme.error,
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -419,12 +631,23 @@ class AdminItemManagementScreen extends StatelessWidget {
     BuildContext context,
     AdminItemController controller,
     Map<String, dynamic>? item,
-  ) {
+  ) async {
     final isEdit = item != null;
-    final nameController = TextEditingController(text: item?['name'] ?? '');
-    final priceController = TextEditingController(text: item?['price'] ?? '');
+    final nameController = TextEditingController(
+      text: item?['name'] is String
+          ? item!['name'] as String
+          : (item?['name']?.toString() ?? ''),
+    );
+    // Handle price - it might be int, double, or String
+    final priceValue = item?['price'];
+    final priceText = priceValue is String
+        ? priceValue
+        : (priceValue != null ? priceValue.toString() : '');
+    final priceController = TextEditingController(text: priceText);
     final descriptionController = TextEditingController(
-      text: item?['description'] ?? '',
+      text: item?['description'] is String
+          ? item!['description'] as String
+          : (item?['description']?.toString() ?? ''),
     );
     String? selectedOwnerId = item?['ownerId'];
     Map<String, dynamic>? selectedOwner;
@@ -432,16 +655,51 @@ class AdminItemManagementScreen extends StatelessWidget {
       text: item?['restaurantName'] ?? '',
     );
 
-    String? selectedCategory = item?['category'];
-    String? imageUrl = item?['image'];
-    XFile? selectedImage;
-    bool isLoading = false;
-
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final storageService = Get.find<SupabaseStorageService>();
     final adminService = Get.find<AdminFirestoreService>();
     final imagePicker = ImagePicker();
+
+    // Get category name from category_id if editing
+    String? selectedCategory;
+    if (item != null) {
+      try {
+        // First try to get category name from category_id
+        final categoryId = item['category_id'];
+        if (categoryId != null) {
+          final categoryName = await adminService.getCategoryNameById(
+            categoryId,
+          );
+          if (categoryName != null && categoryName.isNotEmpty) {
+            selectedCategory = categoryName;
+          }
+        }
+
+        // Fallback to category field if category_id lookup failed
+        if (selectedCategory == null || selectedCategory.isEmpty) {
+          final categoryField = item['category'];
+          if (categoryField != null) {
+            selectedCategory = categoryField is String
+                ? categoryField
+                : categoryField.toString();
+          }
+        }
+      } catch (e) {
+        print('[AdminItemManagementScreen] Error getting category name: $e');
+        // Fallback to category field if it exists
+        final categoryField = item['category'];
+        if (categoryField != null) {
+          selectedCategory = categoryField is String
+              ? categoryField
+              : categoryField.toString();
+        }
+      }
+    }
+    String? imageUrl = item?['image'];
+    XFile? selectedImage;
+    Uint8List? selectedImageBytes;
+    bool isLoading = false;
 
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth > 1200;
@@ -457,6 +715,25 @@ class AdminItemManagementScreen extends StatelessWidget {
     final labelFontSize = isDesktop ? 15.0 : (isTablet ? 14.0 : 13.0);
     final hintFontSize = isDesktop ? 15.0 : (isTablet ? 14.0 : 13.0);
 
+    // Refresh categories when opening dialog and wait for them to load
+    await controller.loadCategories();
+
+    // Ensure categories are loaded
+    if (controller.allCategories.isEmpty) {
+      print(
+        '[AdminItemManagementScreen] No categories loaded, trying again...',
+      );
+      await Future.delayed(Duration(milliseconds: 500));
+      await controller.loadCategories();
+    }
+
+    print(
+      '[AdminItemManagementScreen] Categories after load: ${controller.allCategories.toList()}',
+    );
+
+    // Use a variable that persists across StatefulBuilder rebuilds
+    String? currentSelectedCategory = selectedCategory;
+
     Get.dialog(
       Dialog(
         child: Container(
@@ -464,6 +741,18 @@ class AdminItemManagementScreen extends StatelessWidget {
           padding: EdgeInsets.all(dialogPadding),
           child: StatefulBuilder(
             builder: (context, setState) {
+              // Create a function to update the category
+              void updateCategory(String? newCategory) {
+                setState(() {
+                  currentSelectedCategory = newCategory;
+                  selectedCategory =
+                      newCategory; // Update the original variable too
+                });
+                print(
+                  '[AdminItemManagementScreen] Category updated to: $newCategory',
+                );
+              }
+
               return SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -511,22 +800,8 @@ class AdminItemManagementScreen extends StatelessWidget {
 
                           final owners = snapshot.data ?? [];
 
-                          // Find selected owner if exists
-                          if (selectedOwnerId != null &&
-                              selectedOwner == null) {
-                            selectedOwner = owners.firstWhere(
-                              (owner) =>
-                                  owner['id'] == selectedOwnerId ||
-                                  owner['uid'] == selectedOwnerId,
-                              orElse: () => {},
-                            );
-                            if (selectedOwner!.isEmpty) {
-                              selectedOwner = null;
-                            }
-                          }
-
-                          return StreamBuilder<List<Map<String, dynamic>>>(
-                            stream: adminService.getAllRestaurants(),
+                          return FutureBuilder<List<Map<String, dynamic>>>(
+                            future: adminService.getAllRestaurants(),
                             builder: (context, restaurantsSnapshot) {
                               final restaurants =
                                   restaurantsSnapshot.data ?? [];
@@ -535,9 +810,9 @@ class AdminItemManagementScreen extends StatelessWidget {
                               // Build a map of ownerId/ownerEmail -> restaurant name
                               for (final restaurant in restaurants) {
                                 final ownerId =
-                                    restaurant['ownerId'] as String? ?? '';
+                                    restaurant['owner_id'] as String? ?? '';
                                 final ownerEmail =
-                                    restaurant['ownerEmail'] as String? ?? '';
+                                    restaurant['owner_email'] as String? ?? '';
                                 final restaurantName =
                                     restaurant['name'] as String? ?? '';
 
@@ -552,11 +827,33 @@ class AdminItemManagementScreen extends StatelessWidget {
                                 }
                               }
 
+                              // Filter owners to only include those with restaurants
+                              final ownersWithRestaurants = owners.where((
+                                owner,
+                              ) {
+                                final ownerId =
+                                    owner['id'] ?? owner['uid'] ?? '';
+                                final ownerEmail = owner['email'] ?? '';
+                                final hasRestaurant =
+                                    restaurantNamesMap.containsKey(ownerId) ||
+                                    restaurantNamesMap.containsKey(ownerEmail);
+                                return hasRestaurant;
+                              }).toList();
+
+                              // Get the current selected owner ID
+                              String? currentSelectedOwnerId = selectedOwnerId;
+                              if (currentSelectedOwnerId == null &&
+                                  selectedOwner != null) {
+                                currentSelectedOwnerId =
+                                    selectedOwner!['id'] ??
+                                    selectedOwner!['uid'];
+                              }
+
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  DropdownButtonFormField<Map<String, dynamic>>(
-                                    value: selectedOwner,
+                                  DropdownButtonFormField<String>(
+                                    value: currentSelectedOwnerId,
                                     style: TextStyle(
                                       fontSize: formFieldFontSize,
                                       height: 1.2,
@@ -568,7 +865,7 @@ class AdminItemManagementScreen extends StatelessWidget {
                                           fontSize: labelFontSize,
                                         ),
                                       ),
-                                      hintText: owners.isEmpty
+                                      hintText: ownersWithRestaurants.isEmpty
                                           ? 'لا يوجد ملاك'
                                           : 'اختر المالك',
                                       hintStyle: TextStyle(
@@ -585,51 +882,63 @@ class AdminItemManagementScreen extends StatelessWidget {
                                         vertical: isDesktop ? 16 : 14,
                                       ),
                                     ),
-                                    items: owners.map((owner) {
+                                    selectedItemBuilder: (BuildContext context) {
+                                      return ownersWithRestaurants.map((owner) {
+                                        final ownerId =
+                                            owner['id'] ?? owner['uid'] ?? '';
+                                        final ownerEmail = owner['email'] ?? '';
+                                        final restaurantName =
+                                            restaurantNamesMap[ownerId] ??
+                                            restaurantNamesMap[ownerEmail] ??
+                                            '';
+                                        return Text(
+                                          restaurantName,
+                                          style: TextStyle(
+                                            fontSize: formFieldFontSize,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        );
+                                      }).toList();
+                                    },
+                                    items: ownersWithRestaurants.map((owner) {
                                       final ownerId =
                                           owner['id'] ?? owner['uid'] ?? '';
                                       final ownerEmail = owner['email'] ?? '';
                                       final restaurantName =
                                           restaurantNamesMap[ownerId] ??
                                           restaurantNamesMap[ownerEmail] ??
-                                          'بدون مطعم';
-                                      return DropdownMenuItem<
-                                        Map<String, dynamic>
-                                      >(
-                                        value: owner,
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(
-                                              restaurantName,
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                                fontSize: formFieldFontSize,
-                                              ),
-                                            ),
-                                            if (ownerEmail.isNotEmpty)
-                                              Text(
-                                                ownerEmail,
-                                                style: TextStyle(
-                                                  fontSize:
-                                                      formFieldFontSize - 2,
-                                                  color: colorScheme.onSurface
-                                                      .withOpacity(0.6),
-                                                ),
-                                              ),
-                                          ],
+                                          '';
+                                      return DropdownMenuItem<String>(
+                                        value: ownerId,
+                                        child: Text(
+                                          restaurantName,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: formFieldFontSize,
+                                          ),
                                         ),
                                       );
                                     }).toList(),
-                                    onChanged: owners.isEmpty
+                                    onChanged: ownersWithRestaurants.isEmpty
                                         ? null
-                                        : (owner) {
+                                        : (ownerId) {
                                             setState(() {
+                                              // Find the owner object from the list
+                                              final owner =
+                                                  ownersWithRestaurants
+                                                      .firstWhere(
+                                                        (o) =>
+                                                            (o['id'] ??
+                                                                o['uid']) ==
+                                                            ownerId,
+                                                      );
                                               selectedOwner = owner;
-                                              selectedOwnerId =
-                                                  owner?['id'] ?? owner?['uid'];
+                                              selectedOwnerId = ownerId;
+
+                                              restaurantNameController.text =
+                                                  restaurantNamesMap[ownerId] ??
+                                                  restaurantNamesMap[owner['email']] ??
+                                                  '';
                                             });
                                           },
                                   ),
@@ -638,8 +947,9 @@ class AdminItemManagementScreen extends StatelessWidget {
                                       padding: EdgeInsets.only(top: 8),
                                       child: Text(
                                         'لا يوجد ملاك مسجلين في النظام',
-                                        style: theme.textTheme.bodySmall
+                                        style: theme.textTheme.labelMedium
                                             ?.copyWith(
+                                              fontSize: labelFontSize,
                                               color: colorScheme.error,
                                             ),
                                       ),
@@ -652,34 +962,73 @@ class AdminItemManagementScreen extends StatelessWidget {
                       ),
                     if (!isEdit) SizedBox(height: dialogSpacing),
 
-                    // Show owner info in edit mode
+                    // Show owner email when editing
                     if (isEdit)
-                      Container(
-                        padding: EdgeInsets.all(isDesktop ? 16 : 12),
-                        decoration: BoxDecoration(
-                          color: colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'المالك:',
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                fontSize: labelFontSize,
+                      FutureBuilder<Map<String, dynamic>?>(
+                        future: _getOwnerInfo(item),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return SizedBox.shrink();
+                          }
+                          final ownerInfo = snapshot.data;
+                          if (ownerInfo == null) return SizedBox.shrink();
+
+                          final ownerEmail =
+                              ownerInfo['email'] ??
+                              ownerInfo['owner_email'] ??
+                              '';
+                          if (ownerEmail.isEmpty) return SizedBox.shrink();
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'البريد الإلكتروني للمالك:',
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  fontSize: labelFontSize,
+                                  color: colorScheme.onSurface.withOpacity(0.7),
+                                ),
                               ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              selectedOwnerId ?? 'غير محدد',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontSize: formFieldFontSize,
+                              SizedBox(height: 4),
+                              Container(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: colorScheme.outline.withOpacity(0.2),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.email,
+                                      size: 20,
+                                      color: colorScheme.primary,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        ownerEmail,
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                              fontSize: formFieldFontSize,
+                                              color: colorScheme.onSurface,
+                                            ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
+                              SizedBox(height: dialogSpacing),
+                            ],
+                          );
+                        },
                       ),
-                    if (isEdit) SizedBox(height: dialogSpacing),
 
                     // Name
                     TextField(
@@ -706,11 +1055,47 @@ class AdminItemManagementScreen extends StatelessWidget {
 
                     // Category
                     Obx(() {
-                      final categories = controller.categories
-                          .where((c) => c != 'جميع العناصر')
+                      // Use allCategories directly to ensure reactive updates
+                      final allCats = controller.allCategories.toList();
+                      print(
+                        '[AdminItemManagementScreen] allCategories from controller: $allCats',
+                      );
+
+                      final categories = allCats
+                          .where((c) => c.isNotEmpty && c != 'جميع العناصر')
                           .toList();
+
+                      print(
+                        '[AdminItemManagementScreen] Filtered categories for dropdown: $categories',
+                      );
+                      print(
+                        '[AdminItemManagementScreen] Current selected category: $currentSelectedCategory',
+                      );
+
+                      // If no categories, show a message
+                      if (categories.isEmpty) {
+                        return DropdownButtonFormField<String>(
+                          value: null,
+                          decoration: InputDecoration(
+                            label: Text(
+                              'الفئة *',
+                              style: TextStyle(fontSize: labelFontSize),
+                            ),
+                            hintText: 'لا توجد فئات متاحة',
+                            hintStyle: TextStyle(fontSize: hintFontSize),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: colorScheme.surfaceContainerHighest,
+                          ),
+                          items: [],
+                          onChanged: null,
+                        );
+                      }
+
                       return DropdownButtonFormField<String>(
-                        value: selectedCategory,
+                        value: currentSelectedCategory,
                         style: TextStyle(
                           fontSize: formFieldFontSize,
                           height: 1.2,
@@ -741,8 +1126,12 @@ class AdminItemManagementScreen extends StatelessWidget {
                             ),
                           );
                         }).toList(),
-                        onChanged: (value) =>
-                            setState(() => selectedCategory = value),
+                        onChanged: (value) {
+                          print(
+                            '[AdminItemManagementScreen] Category changed to: $value',
+                          );
+                          updateCategory(value);
+                        },
                       );
                     }),
                     SizedBox(height: dialogSpacing),
@@ -771,26 +1160,59 @@ class AdminItemManagementScreen extends StatelessWidget {
                     ),
                     SizedBox(height: dialogSpacing),
 
-                    // Restaurant Name
+                    // Restaurant Name (read-only, especially when editing)
                     TextField(
                       style: TextStyle(
                         fontSize: formFieldFontSize,
                         height: 1.2,
                       ),
                       controller: restaurantNameController,
+                      enabled: !isEdit, // Disable when editing
+                      readOnly: true, // Always read-only
                       decoration: InputDecoration(
                         label: Text(
                           'اسم المطعم',
                           style: TextStyle(fontSize: labelFontSize),
                         ),
-                        hintText: 'أدخل اسم المطعم',
+                        hintText: isEdit
+                            ? 'اسم المطعم (غير قابل للتعديل)'
+                            : (!isEdit && selectedOwner != null)
+                            ? 'يمكنك تعديل اسم المطعم'
+                            : 'أدخل اسم المطعم',
                         hintStyle: TextStyle(fontSize: hintFontSize),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                         filled: true,
-                        fillColor: colorScheme.surfaceContainerHighest,
+                        fillColor: isEdit
+                            ? colorScheme.surfaceContainerHighest.withOpacity(
+                                0.5,
+                              )
+                            : colorScheme.surfaceContainerHighest,
+                        suffixIcon: (!isEdit && selectedOwner != null)
+                            ? Icon(
+                                Icons.edit,
+                                size: 20,
+                                color: colorScheme.primary.withOpacity(0.6),
+                              )
+                            : isEdit
+                            ? Icon(
+                                Icons.lock,
+                                size: 20,
+                                color: colorScheme.onSurface.withOpacity(0.4),
+                              )
+                            : null,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: isDesktop ? 16 : 12,
+                          vertical: isDesktop ? 16 : 14,
+                        ),
                       ),
+                      onChanged: isEdit
+                          ? null // No changes allowed when editing
+                          : (value) {
+                              // Allow manual editing only when creating new item
+                              setState(() {});
+                            },
                     ),
                     SizedBox(height: dialogSpacing),
 
@@ -814,7 +1236,7 @@ class AdminItemManagementScreen extends StatelessWidget {
                         filled: true,
                         fillColor: colorScheme.surfaceContainerHighest,
                       ),
-                      maxLines: 3,
+                      maxLines: 5,
                     ),
                     SizedBox(height: dialogSpacing),
 
@@ -835,27 +1257,53 @@ class AdminItemManagementScreen extends StatelessWidget {
                             ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: selectedImage != null
-                                  ? Image.file(
-                                      File(selectedImage!.path),
+                              child: selectedImageBytes != null
+                                  ? Image.memory(
+                                      selectedImageBytes!,
                                       fit: BoxFit.cover,
                                     )
-                                  : CachedNetworkImage(
+                                  : imageUrl != null && imageUrl!.isNotEmpty
+                                  ? CachedNetworkImage(
                                       imageUrl: imageUrl!,
                                       fit: BoxFit.cover,
-                                    ),
+                                    )
+                                  : SizedBox.shrink(),
                             ),
                           ),
                         TextButton.icon(
                           onPressed: () async {
-                            final picked = await imagePicker.pickImage(
-                              source: ImageSource.gallery,
-                            );
-                            if (picked != null) {
-                              setState(() {
-                                selectedImage = picked;
-                                imageUrl = null;
-                              });
+                            try {
+                              final picked = await imagePicker.pickImage(
+                                source: ImageSource.gallery,
+                                imageQuality: 85,
+                              );
+                              if (picked != null) {
+                                // Read image bytes for web compatibility
+                                final bytes = await picked.readAsBytes();
+                                setState(() {
+                                  selectedImage = picked;
+                                  selectedImageBytes = bytes;
+                                  imageUrl = null;
+                                });
+                              }
+                            } catch (e) {
+                              Get.snackbar(
+                                'خطأ',
+                                'فشل اختيار الصورة: $e',
+                                maxWidth: Get.width > 1200
+                                    ? 400.0
+                                    : (Get.width > 768 ? 350.0 : null),
+                                margin: Get.width > 768
+                                    ? EdgeInsets.symmetric(
+                                        horizontal: Get.width > 1200
+                                            ? (Get.width - 400.0) / 2
+                                            : (Get.width - 350.0) / 2,
+                                        vertical: 16,
+                                      )
+                                    : EdgeInsets.all(16),
+                                snackStyle: SnackStyle.FLOATING,
+                                borderRadius: 12,
+                              );
                             }
                           },
                           icon: Icon(Icons.image),
@@ -938,22 +1386,83 @@ class AdminItemManagementScreen extends StatelessWidget {
                                   }
 
                                   String? finalImageUrl = imageUrl;
-                                  if (selectedImage != null) {
+                                  if (selectedImage != null &&
+                                      selectedImageBytes != null) {
                                     try {
-                                      final ownerId =
-                                          selectedOwnerId ??
-                                          item?['ownerId'] ??
-                                          '';
-                                      finalImageUrl = await storageService
-                                          .uploadImage(
-                                            file: File(selectedImage!.path),
-                                            pathPrefix:
-                                                'menu_items/$ownerId/logos',
+                                      // Get ownerId - for new items use selectedOwnerId, for edits get from restaurant_id
+                                      String? ownerId = selectedOwnerId;
+
+                                      if (ownerId?.isEmpty ?? true) {
+                                        if (isEdit) {
+                                          // Get ownerId from restaurant_id
+                                          final restaurantId =
+                                              item['restaurant_id'];
+                                          if (restaurantId != null) {
+                                            try {
+                                              final supabase =
+                                                  Supabase.instance.client;
+                                              final restaurant = await supabase
+                                                  .from('restaurants')
+                                                  .select(
+                                                    'owner_id, owner_email',
+                                                  )
+                                                  .eq('id', restaurantId)
+                                                  .maybeSingle();
+
+                                              if (restaurant != null) {
+                                                ownerId =
+                                                    restaurant['owner_id']
+                                                        as String? ??
+                                                    restaurant['owner_email']
+                                                        as String? ??
+                                                    '';
+                                              }
+                                            } catch (e) {
+                                              print(
+                                                '[AdminItemManagementScreen] Error getting owner from restaurant: $e',
+                                              );
+                                            }
+                                          }
+                                        }
+                                      }
+
+                                      if (ownerId == null || ownerId.isEmpty) {
+                                        throw Exception(
+                                          'معرف المالك غير موجود. يرجى التأكد من أن العنصر مرتبط بمطعم.',
+                                        );
+                                      }
+
+                                      // For web, use bytes; for mobile, use file path
+                                      if (kIsWeb) {
+                                        // Web: upload bytes directly
+                                        finalImageUrl = await storageService
+                                            .uploadImageBytes(
+                                              bytes: selectedImageBytes!,
+                                              pathPrefix:
+                                                  'menu_items/$ownerId/logos',
+                                            );
+                                      } else {
+                                        // Mobile: use file path
+                                        final imageFile = File(
+                                          selectedImage!.path,
+                                        );
+                                        if (!await imageFile.exists()) {
+                                          throw Exception(
+                                            'الملف المحدد غير موجود',
                                           );
+                                        }
+
+                                        finalImageUrl = await storageService
+                                            .uploadImage(
+                                              file: imageFile,
+                                              pathPrefix:
+                                                  'menu_items/$ownerId/logos',
+                                            );
+                                      }
                                     } catch (e) {
                                       Get.snackbar(
                                         'خطأ',
-                                        'فشل رفع الصورة: $e',
+                                        'فشل رفع الصورة: ${e.toString().replaceAll('Exception: ', '')}',
                                         maxWidth: Get.width > 1200
                                             ? 400.0
                                             : (Get.width > 768 ? 350.0 : null),
@@ -967,8 +1476,12 @@ class AdminItemManagementScreen extends StatelessWidget {
                                             : EdgeInsets.all(16),
                                         snackStyle: SnackStyle.FLOATING,
                                         borderRadius: 12,
+                                        duration: Duration(seconds: 4),
                                       );
-                                      setState(() => isLoading = false);
+                                      setState(() {
+                                        isLoading = false;
+                                        print(e);
+                                      });
                                       return;
                                     }
                                   }

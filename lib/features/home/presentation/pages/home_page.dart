@@ -1,7 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -12,8 +12,8 @@ import 'package:mata3mna/core/databases/cache/cache_helper.dart';
 import 'package:mata3mna/features/auth/presentation/controllers/auth_controller.dart';
 import 'package:mata3mna/features/home/data/services/menu_firestore_service.dart';
 import 'package:mata3mna/features/restaurant_info/data/services/restaurant_firestore_service.dart';
+import 'package:mata3mna/features/dashboard/data/services/admin_firestore_service.dart';
 import 'package:sizer/sizer.dart';
-
 import './widgets/empty_category_state.dart';
 import './widgets/menu_item_card.dart';
 
@@ -31,17 +31,17 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  final MenuFirestoreService _menuService = Get.find<MenuFirestoreService>();
+  final MenuSupabaseService _menuService = Get.find<MenuSupabaseService>();
   final CacheHelper _cacheHelper = Get.find<CacheHelper>();
 
-  final RestaurantFirestoreService _restaurantService =
-      Get.find<RestaurantFirestoreService>();
+  final RestaurantSupabaseService _restaurantService =
+      Get.find<RestaurantSupabaseService>();
+  final AdminFirestoreService _adminService = AdminFirestoreService();
   final ImagePicker _imagePicker = ImagePicker();
 
   bool _isLoading = false;
   String _searchQuery = '';
   List<Map<String, dynamic>> _menuItems = [];
-  bool _hasScrolledToBottom = false;
 
   // Categories for menu organization
   List<String> _categories = ['جميع العناصر'];
@@ -52,23 +52,54 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
   // Restaurant logo URL for fallback
   String? _restaurantLogoUrl;
 
+  // Stream subscription for menu items (needs to be cancelled on dispose)
+  StreamSubscription<List<Map<String, dynamic>>>? _menuItemsSubscription;
+
   @override
   void initState() {
     super.initState();
-    _loadCategories();
-    _loadCategoryImages();
-    _loadRestaurantLogo();
+    // Initialize TabController with default value first
     _tabController = TabController(length: _categories.length, vsync: this);
     _tabController.addListener(_handleTabChange);
+    _initializeCategories();
+  }
+
+  Future<void> _initializeCategories() async {
+    await _loadCategories();
+    _loadCategoryImages();
+    _loadRestaurantLogo();
+
+    // Update TabController if categories changed
+    if (_tabController.length != _categories.length) {
+      final oldController = _tabController;
+      final currentIndex = oldController.index;
+
+      oldController.removeListener(_handleTabChange);
+      oldController.dispose();
+
+      _tabController = TabController(
+        length: _categories.length,
+        vsync: this,
+        initialIndex: currentIndex.clamp(0, _categories.length - 1),
+      );
+      _tabController.addListener(_handleTabChange);
+    }
+
     _loadMenuItems();
+
+    // Force UI update after initialization
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _loadRestaurantLogo() async {
     try {
       final ownerId = _cacheHelper.getData(key: 'userUid') as String?;
       if (ownerId != null && ownerId.isNotEmpty) {
-        final restaurantInfo = await _restaurantService
-            .getRestaurantInfoByOwnerId(ownerId);
+        final restaurantInfo = await _restaurantService.getRestaurantByOwnerId(
+          ownerId,
+        );
         if (restaurantInfo != null && mounted) {
           setState(() {
             _restaurantLogoUrl = restaurantInfo['logoPath'] as String?;
@@ -111,7 +142,7 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
     }
   }
 
-  void _loadCategories() {
+  Future<void> _loadCategories() async {
     final ownerId = _cacheHelper.getData(key: 'userUid') as String?;
     if (ownerId == null || ownerId.isEmpty) {
       // Default categories if no user ID
@@ -119,15 +150,42 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
       return;
     }
 
-    // Use user-specific key for categories
-    final userCategoriesKey = 'menuCategories_$ownerId';
-    final savedCategories = _cacheHelper.getStringList(key: userCategoriesKey);
-    if (savedCategories != null && savedCategories.isNotEmpty) {
-      _categories = ['جميع العناصر', ...savedCategories];
-    } else {
-      // Default categories
-      _categories = ['جميع العناصر'];
-      _saveCategories(); // Save default categories on first load
+    // Categories are related to restaurant_id: load by restaurant
+    try {
+      final restaurantInfo = await _restaurantService.getRestaurantByOwnerId(
+        ownerId,
+      );
+      final restaurantId = restaurantInfo?['id']?.toString() ?? '';
+      final firestoreCategories = restaurantId.isNotEmpty
+          ? await _adminService.getCategoriesByRestaurantId(restaurantId)
+          : await _adminService.getAllCategories();
+      print(
+        '[HomePage] Loaded ${firestoreCategories.length} categories (restaurantId: $restaurantId): $firestoreCategories',
+      );
+
+      if (firestoreCategories.isNotEmpty) {
+        _categories = ['جميع العناصر', ...firestoreCategories.toList()..sort()];
+        final userCategoriesKey = 'menuCategories_$ownerId';
+        _cacheHelper.saveData(
+          key: userCategoriesKey,
+          value: firestoreCategories,
+        );
+      } else {
+        _categories = ['جميع العناصر'];
+        _saveCategories();
+      }
+    } catch (e) {
+      print('[HomePage] Error loading categories from Firestore: $e');
+      final userCategoriesKey = 'menuCategories_$ownerId';
+      final savedCategories = _cacheHelper.getStringList(
+        key: userCategoriesKey,
+      );
+      if (savedCategories != null && savedCategories.isNotEmpty) {
+        _categories = ['جميع العناصر', ...savedCategories];
+      } else {
+        _categories = ['جميع العناصر'];
+        _saveCategories();
+      }
     }
   }
 
@@ -144,18 +202,194 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
   }
 
   void _loadMenuItems() {
+    // Cancel previous subscription if exists
+    _menuItemsSubscription?.cancel();
+
     final ownerId = _cacheHelper.getData(key: 'userUid') as String?;
     if (ownerId != null && ownerId.isNotEmpty) {
-      _menuService.getMenuItemsStream(ownerId).listen((items) {
+      _menuItemsSubscription = _menuService.getMenuItemsStream(ownerId).listen((
+        items,
+      ) async {
         if (mounted) {
           setState(() {
             _menuItems = items;
           });
 
+          // Extract categories from menu items and merge with saved categories
+          await _syncCategoriesFromMenuItems();
+
           // Auto-advance to next tab if first tab is empty
           _checkAndAdvanceFromFirstTab();
         }
       });
+    }
+  }
+
+  /// Extract categories from menu items and merge with saved categories
+  /// This ensures that when a new item is added with a new category,
+  /// the category automatically appears in the tabs
+  /// Also syncs with Firestore categories to get latest updates from Dashboard
+  Future<void> _syncCategoriesFromMenuItems() async {
+    final ownerId = _cacheHelper.getData(key: 'userUid') as String?;
+    if (ownerId == null || ownerId.isEmpty) return;
+
+    // Extract unique categories from menu items
+    final categoriesFromItems = <String>{};
+    bool hasUnclassifiedItems = false;
+    for (final item in _menuItems) {
+      final category = (item['category'] as String? ?? '').trim();
+      if (category.isNotEmpty) {
+        if (category == 'غير مصنف') {
+          hasUnclassifiedItems = true;
+        } else {
+          categoriesFromItems.add(category);
+        }
+      }
+    }
+
+    // Always include "غير مصنف" if there are items with this category
+    if (hasUnclassifiedItems) {
+      categoriesFromItems.add('غير مصنف');
+    }
+
+    print(
+      '[HomePage] _syncCategoriesFromMenuItems: Found ${categoriesFromItems.length} categories from ${_menuItems.length} items',
+    );
+    print('[HomePage] Categories from items: ${categoriesFromItems.toList()}');
+
+    // Get saved categories (excluding 'جميع العناصر')
+    final savedCategories = _categories
+        .where((cat) => cat != 'جميع العناصر')
+        .toSet();
+
+    print('[HomePage] Saved categories: ${savedCategories.toList()}');
+
+    // Categories are related to restaurant_id
+    try {
+      final restaurantInfo = await _restaurantService.getRestaurantByOwnerId(
+        ownerId,
+      );
+      final restaurantId = restaurantInfo?['id']?.toString() ?? '';
+      final firestoreCategories = restaurantId.isNotEmpty
+          ? await _adminService.getCategoriesByRestaurantId(restaurantId)
+          : await _adminService.getAllCategories();
+      print(
+        '[HomePage] Categories from Firestore (restaurantId: $restaurantId): ${firestoreCategories.toList()}',
+      );
+
+      final allCategories = <String>{...firestoreCategories};
+
+      print(
+        '[HomePage] Final categories (from Firestore only): ${allCategories.toList()}',
+      );
+
+      // Check if there are new categories that need to be added
+      final newCategories = allCategories
+          .where((cat) => !savedCategories.contains(cat))
+          .toList();
+
+      // Check if there are deleted categories (in saved but not in Firestore)
+      final deletedCategories = savedCategories
+          .where((cat) => !firestoreCategories.contains(cat))
+          .toList();
+
+      if (newCategories.isNotEmpty) {
+        print(
+          '[HomePage] New categories detected: $newCategories - Adding them automatically',
+        );
+      }
+
+      if (deletedCategories.isNotEmpty) {
+        print(
+          '[HomePage] Deleted categories detected: $deletedCategories - Removing them (deleted from Firestore)',
+        );
+      }
+
+      // Update categories list if there are changes
+      // Always update if Firestore categories changed (to reflect deletions)
+      if (newCategories.isNotEmpty ||
+          deletedCategories.isNotEmpty ||
+          allCategories.length != savedCategories.length ||
+          !allCategories.every((cat) => savedCategories.contains(cat)) ||
+          !firestoreCategories.every((cat) => allCategories.contains(cat))) {
+        final finalCategories = [
+          'جميع العناصر',
+          ...allCategories.toList()..sort(),
+        ];
+
+        // Only update if categories actually changed
+        if (finalCategories.length != _categories.length ||
+            !finalCategories.every((cat) => _categories.contains(cat))) {
+          print(
+            '[HomePage] Updating categories list: ${_categories.length} -> ${finalCategories.length}',
+          );
+
+          final oldController = _tabController;
+          final currentIndex = oldController.index;
+
+          _categories = finalCategories;
+          _saveCategories();
+
+          // Recreate TabController with new length
+          oldController.removeListener(_handleTabChange);
+          oldController.dispose();
+
+          _tabController = TabController(
+            length: _categories.length,
+            vsync: this,
+            initialIndex: currentIndex.clamp(0, _categories.length - 1),
+          );
+          _tabController.addListener(_handleTabChange);
+
+          // Reload category images for new categories
+          _loadCategoryImages();
+
+          // Force UI update
+          if (mounted) {
+            setState(() {});
+          }
+        }
+      }
+    } catch (e) {
+      print('[HomePage] Error loading categories from Firestore in sync: $e');
+      // Fallback: merge saved categories with categories from items only
+      final allCategories = <String>{
+        ...savedCategories,
+        ...categoriesFromItems,
+      };
+
+      if (allCategories.length != savedCategories.length ||
+          !allCategories.every((cat) => savedCategories.contains(cat))) {
+        final finalCategories = [
+          'جميع العناصر',
+          ...allCategories.toList()..sort(),
+        ];
+
+        if (finalCategories.length != _categories.length ||
+            !finalCategories.every((cat) => _categories.contains(cat))) {
+          final oldController = _tabController;
+          final currentIndex = oldController.index;
+
+          _categories = finalCategories;
+          _saveCategories();
+
+          oldController.removeListener(_handleTabChange);
+          oldController.dispose();
+
+          _tabController = TabController(
+            length: _categories.length,
+            vsync: this,
+            initialIndex: currentIndex.clamp(0, _categories.length - 1),
+          );
+          _tabController.addListener(_handleTabChange);
+
+          _loadCategoryImages();
+
+          if (mounted) {
+            setState(() {});
+          }
+        }
+      }
     }
   }
 
@@ -178,6 +412,8 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
 
   @override
   void dispose() {
+    // Cancel stream subscription to prevent memory leaks
+    _menuItemsSubscription?.cancel();
     _tabController.removeListener(_handleTabChange);
     _tabController.dispose();
     _searchController.dispose();
@@ -186,70 +422,18 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
   }
 
   void _handleTabChange() {
-    // Allow tab navigation at any time, regardless of items completion
-    if (_tabController.indexIsChanging ||
-        _tabController.index != _tabController.previousIndex) {
-      setState(() {
-        // Clear search when switching categories
-        if (_searchQuery.isNotEmpty) {
-          _searchController.clear();
-          _searchQuery = '';
-        }
-        // Reset scroll position and bottom flag when switching tabs
-        _hasScrolledToBottom = false;
-        if (_scrollController.hasClients) {
-          _scrollController.jumpTo(0);
-        }
-      });
-    }
-  }
-
-  bool _handleScrollNotification(ScrollNotification notification) {
-    // Only handle scroll end notifications to prevent rapid navigation
-    if (notification is! ScrollEndNotification) {
-      return false;
-    }
-
-    if (!_scrollController.hasClients) return false;
-
-    final scrollPosition = _scrollController.position;
-    final maxScroll = scrollPosition.maxScrollExtent;
-    final currentScroll = scrollPosition.pixels;
-
-    // Don't trigger if there's no scrollable content
-    if (maxScroll <= 0) return false;
-
-    // Don't trigger if user hasn't scrolled
-    if (currentScroll <= 0) return false;
-
-    // Check if user has reached the bottom
-    // Use a simple threshold: within 100px of bottom for all lists
-    final threshold = 20;
-    final distanceFromBottom = maxScroll - currentScroll;
-    final isNearBottom = distanceFromBottom <= threshold;
-
-    // Also check if at edge
-    final isAtEdge = scrollPosition.atEdge && currentScroll > 0;
-
-    // Trigger navigation if at bottom or near bottom
-    if ((isAtEdge || isNearBottom) && !_hasScrolledToBottom) {
-      _hasScrolledToBottom = true;
-
-      if (_tabController.index < _tabController.length - 1) {
-        final nextIndex = _tabController.index + 1;
-        // Small delay for smooth transition
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted &&
-              _tabController.index < _tabController.length - 1 &&
-              !_tabController.indexIsChanging &&
-              _tabController.length > nextIndex) {
-            _tabController.animateTo(nextIndex);
-          }
-        });
+    // Like customer view: only clear search when tab is changing
+    if (_tabController.indexIsChanging) {
+      if (_searchQuery.isNotEmpty) {
+        _searchController.clear();
+        _searchQuery = '';
+        setState(() {});
+      }
+      // Reset scroll position when switching tabs
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0);
       }
     }
-
-    return false; // Allow notification to continue
   }
 
   List<Map<String, dynamic>> _getFilteredItems() {
@@ -278,6 +462,26 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
   Future<void> _handleRefresh() async {
     setState(() => _isLoading = true);
 
+    // Reload categories from Firestore first (to get latest updates from Dashboard)
+    await _loadCategories();
+    _loadCategoryImages();
+
+    // Update TabController if categories changed
+    if (_tabController.length != _categories.length) {
+      final oldController = _tabController;
+      final currentIndex = oldController.index;
+
+      oldController.removeListener(_handleTabChange);
+      oldController.dispose();
+
+      _tabController = TabController(
+        length: _categories.length,
+        vsync: this,
+        initialIndex: currentIndex.clamp(0, _categories.length - 1),
+      );
+      _tabController.addListener(_handleTabChange);
+    }
+
     // Reload menu items
     _loadMenuItems();
 
@@ -285,13 +489,15 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
       HapticFeedback.mediumImpact();
       setState(() => _isLoading = false);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('تم تحديث القائمة بنجاح'),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('تم تحديث القائمة بنجاح'),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
     }
   }
 
@@ -389,6 +595,55 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
                           Row(
                             children: [
                               IconButton(
+                                icon: Icon(
+                                  Icons.refresh_rounded,
+                                  color: theme.scaffoldBackgroundColor,
+                                ),
+                                tooltip: 'تحديث القائمة',
+                                onPressed: () async {
+                                  await _handleRefresh();
+                                },
+                              ),
+
+                              // Only show this button for owners, not admins
+                              if ((_cacheHelper.getData(key: 'userRole')
+                                      as String?) !=
+                                  'admin')
+                                IconButton(
+                                  onPressed: () async {
+                                    // Load restaurant info and pass it for editing
+                                    final ownerId =
+                                        _cacheHelper.getData(key: 'userUid')
+                                            as String?;
+                                    Map<String, dynamic>? restaurantData;
+                                    if (ownerId != null && ownerId.isNotEmpty) {
+                                      try {
+                                        restaurantData =
+                                            await _restaurantService
+                                                .getRestaurantByOwnerId(
+                                                  ownerId,
+                                                );
+                                        print(
+                                          '[HomePage] Loaded restaurant data: $restaurantData',
+                                        );
+                                      } catch (e) {
+                                        print(
+                                          '[HomePage] Error loading restaurant info: $e',
+                                        );
+                                      }
+                                    }
+                                    Get.toNamed(
+                                      AppPages.completeRestaurantInfo,
+                                      arguments: restaurantData,
+                                    );
+                                  },
+                                  icon: Icon(
+                                    Icons.person_2_rounded,
+                                    color: theme.scaffoldBackgroundColor,
+                                  ),
+                                  tooltip: 'تعديل معلومات المطعم',
+                                ),
+                              IconButton(
                                 onPressed: () async {
                                   showDialog(
                                     context: context,
@@ -463,50 +718,6 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
                                   color: theme.scaffoldBackgroundColor,
                                 ),
                               ),
-                              // Only show this button for owners, not admins
-                              if ((_cacheHelper.getData(key: 'userRole')
-                                      as String?) !=
-                                  'admin')
-                                IconButton(
-                                  onPressed: () async {
-                                    // Load restaurant info and pass it for editing
-                                    final ownerId =
-                                        _cacheHelper.getData(key: 'userUid')
-                                            as String?;
-                                    Map<String, dynamic>? restaurantData;
-                                    if (ownerId != null && ownerId.isNotEmpty) {
-                                      try {
-                                        final ownerEmail =
-                                            _cacheHelper.getData(
-                                                  key: 'userEmail',
-                                                )
-                                                as String?;
-                                        restaurantData =
-                                            await _restaurantService
-                                                .getRestaurantInfoByOwnerId(
-                                                  ownerId,
-                                                  ownerEmail: ownerEmail,
-                                                );
-                                        print(
-                                          '[HomePage] Loaded restaurant data: $restaurantData',
-                                        );
-                                      } catch (e) {
-                                        print(
-                                          '[HomePage] Error loading restaurant info: $e',
-                                        );
-                                      }
-                                    }
-                                    Get.toNamed(
-                                      AppPages.completeRestaurantInfo,
-                                      arguments: restaurantData,
-                                    );
-                                  },
-                                  icon: Icon(
-                                    Icons.person_2_rounded,
-                                    color: theme.scaffoldBackgroundColor,
-                                  ),
-                                  tooltip: 'تعديل معلومات المطعم',
-                                ),
                             ],
                           ),
                         ],
@@ -573,7 +784,19 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
                 : RefreshIndicator(
                     onRefresh: _handleRefresh,
                     child: filteredItems.isEmpty
-                        ? _buildEmptyState()
+                        ? LayoutBuilder(
+                            builder: (context, constraints) {
+                              return SingleChildScrollView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    minHeight: constraints.maxHeight,
+                                  ),
+                                  child: _buildEmptyState(),
+                                ),
+                              );
+                            },
+                          )
                         : _buildItemsList(filteredItems),
                   ),
           ),
@@ -818,24 +1041,19 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
   }
 
   Widget _buildItemsList(List<Map<String, dynamic>> items) {
-    return NotificationListener<ScrollNotification>(
-      onNotification: _handleScrollNotification,
-      child: ListView.builder(
-        controller: _scrollController,
-        physics: const AlwaysScrollableScrollPhysics(),
-        // Add extra bottom padding to ensure there's always scrollable space
-        // This allows navigation to work even with one item
-        padding: EdgeInsets.only(top: 2.h, bottom: 45.h),
-        itemCount: items.length,
-        itemBuilder: (context, index) {
-          final item = items[index];
-          return MenuItemCard(
-            item: item,
-            onEdit: () => _handleEditItem(item),
-            onDelete: () => _handleDeleteItem(item),
-          );
-        },
-      ),
+    return ListView.builder(
+      controller: _scrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: EdgeInsets.only(top: 2.h, bottom: 45.h),
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return MenuItemCard(
+          item: item,
+          onEdit: () => _handleEditItem(item),
+          onDelete: () => _handleDeleteItem(item),
+        );
+      },
     );
   }
 
@@ -979,25 +1197,40 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
       final ownerId = _cacheHelper.getData(key: 'userUid') as String?;
       if (ownerId == null || ownerId.isEmpty) return;
 
-      // Find all items with this category and update them to "غير مصنف"
+      // Delete category from Firestore (categories are related to restaurant_id)
+      try {
+        final restaurantInfo = await _restaurantService.getRestaurantByOwnerId(
+          ownerId,
+        );
+        final restaurantId = restaurantInfo?['id']?.toString();
+        await _adminService.deleteCategory(
+          category,
+          restaurantId: restaurantId,
+        );
+        print(
+          '[HomePage] Category "$category" deleted from Firestore categories collection',
+        );
+      } catch (e) {
+        print('[HomePage] Error deleting category from Firestore: $e');
+        // Continue even if Firestore deletion fails - category is still deleted locally
+        if (mounted && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'تم حذف الفئة محلياً، لكن فشل حذفها من قاعدة البيانات.',
+              ),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+
+      // Find all items with this category (deleteCategory already moves them to "غير مصنف" in DB)
       final itemsToUpdate = _menuItems
           .where((item) => item['category'] == category)
           .toList();
-
-      // Update all items to "غير مصنف" category
-      for (final item in itemsToUpdate) {
-        final itemId = item['id'] as String?;
-        if (itemId != null) {
-          try {
-            await FirebaseFirestore.instance
-                .collection('menuItems')
-                .doc(itemId)
-                .update({'category': 'غير مصنف'});
-          } catch (e) {
-            print('Error updating item $itemId: $e');
-          }
-        }
-      }
 
       // Ensure "غير مصنف" category exists in the list
       bool addedUncategorized = false;
@@ -1109,24 +1342,34 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
       final ownerId = _cacheHelper.getData(key: 'userUid') as String?;
       if (ownerId == null || ownerId.isEmpty) return;
 
-      // If category name changed, update menu items
+      // If category name changed, update in Firestore (categories are related to restaurant_id)
       if (oldCategory != newCategory) {
-        final itemsToUpdate = _menuItems
-            .where((item) => item['category'] == oldCategory)
-            .toList();
-
-        for (final item in itemsToUpdate) {
-          final itemId = item['id'] as String?;
-          if (itemId != null) {
-            try {
-              // Update category field in Firestore
-              await FirebaseFirestore.instance
-                  .collection('menuItems')
-                  .doc(itemId)
-                  .update({'category': newCategory});
-            } catch (e) {
-              print('Error updating item $itemId: $e');
-            }
+        try {
+          final restaurantInfo = await _restaurantService
+              .getRestaurantByOwnerId(ownerId);
+          final restaurantId = restaurantInfo?['id']?.toString();
+          await _adminService.updateCategoryName(
+            oldCategory: oldCategory,
+            newCategory: newCategory,
+            restaurantId: restaurantId,
+          );
+          print(
+            '[HomePage] Category "$oldCategory" updated to "$newCategory" in Firestore categories collection',
+          );
+        } catch (e) {
+          print('[HomePage] Error updating category in Firestore: $e');
+          // Continue even if Firestore update fails - category is still updated locally
+          if (mounted && context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'تم تحديث الفئة محلياً، لكن فشل تحديثها في قاعدة البيانات.',
+                ),
+                backgroundColor: Colors.orange,
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 3),
+              ),
+            );
           }
         }
       }
@@ -1178,7 +1421,7 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
       _saveCategories();
       setState(() {});
 
-      if (mounted) {
+      if (mounted && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('تم تحديث الفئة بنجاح'),
@@ -1188,7 +1431,7 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
         );
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('فشل تحديث الفئة: $e'),
@@ -1213,9 +1456,38 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
         theme: theme,
         colorScheme: colorScheme,
         onCategoryAdded: (category, image) async {
-          // Handle category creation logic here
-          final newCategory = category;
+          final newCategory = category.trim();
           if (newCategory.isNotEmpty && !_categories.contains(newCategory)) {
+            try {
+              final ownerId = _cacheHelper.getData(key: 'userUid') as String?;
+              final restaurantInfo = ownerId != null && ownerId.isNotEmpty
+                  ? await _restaurantService.getRestaurantByOwnerId(ownerId)
+                  : null;
+              final restaurantId = restaurantInfo?['id']?.toString();
+              await _adminService.createCategory(
+                newCategory,
+                restaurantId: restaurantId,
+              );
+              print(
+                '[HomePage] Category "$newCategory" added to Firestore categories collection',
+              );
+            } catch (e) {
+              print('[HomePage] Error adding category to Firestore: $e');
+              // Continue even if Firestore creation fails - category is still added locally
+              if (mounted && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'تم إضافة الفئة محلياً، لكن فشل حفظها في قاعدة البيانات. سيتم إعادة المحاولة تلقائياً.',
+                    ),
+                    backgroundColor: Colors.orange,
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+              }
+            }
+
             // Store old controller state before updating
             final oldController = _tabController;
             final currentIndex = oldController.index;
@@ -1263,7 +1535,7 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
                 }
               } catch (e) {
                 // Category was already created successfully, just show a warning about image
-                if (mounted) {
+                if (mounted && context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
@@ -1288,7 +1560,9 @@ class _MenuManagementScreenState extends State<MenuManagementScreen>
               }
             });
 
-            if (mounted) {
+            // Show success message after a short delay to ensure context is still valid
+            await Future.delayed(const Duration(milliseconds: 100));
+            if (mounted && context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('تم إضافة الفئة "$newCategory" بنجاح'),

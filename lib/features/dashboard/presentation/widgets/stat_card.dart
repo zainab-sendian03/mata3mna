@@ -6,13 +6,14 @@ class StatCard extends StatelessWidget {
   final String value;
   final IconData icon;
   final Color color;
-
+  final void Function()? onTap;
   const StatCard({
     super.key,
     required this.title,
     required this.value,
     required this.icon,
     required this.color,
+    this.onTap,
   });
 
   @override
@@ -30,49 +31,57 @@ class StatCard extends StatelessWidget {
     final valuePaddingV = isDesktop ? 8.0 : (isTablet ? 7.0 : 6.0);
     final spacing = isDesktop ? 16.0 : (isTablet ? 14.0 : 12.0);
 
-    return Container(
-      padding: EdgeInsets.all(padding),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Container(
+          padding: EdgeInsets.all(padding),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: color.withOpacity(0.3), width: 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, color: color, size: iconSize),
-              Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: valuePaddingH,
-                  vertical: valuePaddingV,
-                ),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  value,
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    color: color,
-                    fontWeight: FontWeight.bold,
-                    fontSize: isDesktop ? 24 : (isTablet ? 22 : 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Icon(icon, color: color, size: iconSize),
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: valuePaddingH,
+                      vertical: valuePaddingV,
+                    ),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      value,
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        color: color,
+                        fontWeight: FontWeight.bold,
+                        fontSize: isDesktop ? 24 : (isTablet ? 22 : 20),
+                      ),
+                    ),
                   ),
+                ],
+              ),
+              SizedBox(height: spacing),
+              Text(
+                title,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurface.withOpacity(0.7),
+                  fontSize: isDesktop ? 15 : (isTablet ? 14 : 13),
                 ),
               ),
             ],
           ),
-          SizedBox(height: spacing),
-          Text(
-            title,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: colorScheme.onSurface.withOpacity(0.7),
-              fontSize: isDesktop ? 15 : (isTablet ? 14 : 13),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

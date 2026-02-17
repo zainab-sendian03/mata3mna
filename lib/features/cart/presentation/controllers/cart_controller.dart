@@ -14,8 +14,8 @@ class CartController extends GetxController {
   // Current active cart ownerId
   final Rxn<String> currentCartOwnerId = Rxn<String>();
 
-  final RestaurantFirestoreService _restaurantService =
-      Get.find<RestaurantFirestoreService>();
+  final RestaurantSupabaseService _restaurantService =
+      Get.find<RestaurantSupabaseService>();
   final CacheHelper _cacheHelper = Get.find<CacheHelper>();
 
   static const String _cartDataKey = 'saved_cart_data';
@@ -34,16 +34,35 @@ class CartController extends GetxController {
     return getCartItems(currentCartOwnerId.value!);
   }
 
+  /// Resolve restaurant info by owner_id or by restaurant id (when owner_id is null)
+  Future<Map<String, dynamic>?> _getRestaurantInfo(String ownerOrRestaurantId) async {
+    if (ownerOrRestaurantId.isEmpty) return null;
+    try {
+      Map<String, dynamic>? info = await _restaurantService.getRestaurantByOwnerId(
+        ownerOrRestaurantId,
+      );
+      if (info == null) {
+        info = await _restaurantService.getRestaurantById(ownerOrRestaurantId);
+      }
+      return info;
+    } catch (e) {
+      return null;
+    }
+  }
+
   /// Add item to cart, creating new cart if from different restaurant
   Future<void> addItem(Map<String, dynamic> item, String ownerId) async {
     final itemId = item['id'] as String? ?? '';
 
-    // Get restaurant name
-    String? restaurantName;
+    // Get restaurant name and phone (try owner_id then restaurant id)
+    String restaurantName = 'مطعم';
+    String restaurantPhone = '';
     try {
-      final restaurantInfo = await _restaurantService
-          .getRestaurantInfoByOwnerId(ownerId);
-      restaurantName = restaurantInfo?['name'] as String? ?? 'مطعم';
+      final restaurantInfo = await _getRestaurantInfo(ownerId);
+      if (restaurantInfo != null) {
+        restaurantName = restaurantInfo['name'] as String? ?? 'مطعم';
+        restaurantPhone = (restaurantInfo['phone'] ?? '').toString().trim();
+      }
     } catch (e) {
       restaurantName = 'مطعم';
     }
@@ -62,12 +81,14 @@ class CartController extends GetxController {
     final cart = restaurantCarts[ownerId]!;
 
     if (cart.containsKey(itemId)) {
-      // Increase quantity
-      final currentQuantity = cart[itemId]!['quantity'] as int;
+      // Increase quantity (keep existing restaurantName/restaurantPhone if already set)
+      final current = cart[itemId]!;
+      final currentQuantity = current['quantity'] as int;
       cart[itemId] = {
         'item': item,
         'ownerId': ownerId,
-        'restaurantName': restaurantName,
+        'restaurantName': current['restaurantName'] ?? restaurantName,
+        'restaurantPhone': current['restaurantPhone'] ?? restaurantPhone,
         'quantity': currentQuantity + 1,
       };
     } else {
@@ -76,11 +97,13 @@ class CartController extends GetxController {
         'item': item,
         'ownerId': ownerId,
         'restaurantName': restaurantName,
+        'restaurantPhone': restaurantPhone,
         'quantity': 1,
       };
     }
 
     restaurantCarts.refresh();
+    update();
     _saveCartData();
   }
 
@@ -100,11 +123,13 @@ class CartController extends GetxController {
     final currentQuantity = cart[itemId]!['quantity'] as int;
     if (currentQuantity > 1) {
       // Decrease quantity
+      final current = cart[itemId]!;
       cart[itemId] = {
-        'item': cart[itemId]!['item'],
+        'item': current['item'],
         'quantity': currentQuantity - 1,
-        'ownerId': cart[itemId]!['ownerId'],
-        'restaurantName': cart[itemId]!['restaurantName'],
+        'ownerId': current['ownerId'],
+        'restaurantName': current['restaurantName'],
+        'restaurantPhone': current['restaurantPhone'],
       };
     } else {
       // Remove item
@@ -124,6 +149,7 @@ class CartController extends GetxController {
       }
     }
     restaurantCarts.refresh();
+    update();
     _saveCartData();
   }
 
@@ -152,6 +178,7 @@ class CartController extends GetxController {
       _saveCartData();
     }
     restaurantCarts.refresh();
+    update();
   }
 
   /// Save cart data to local storage
@@ -209,6 +236,7 @@ class CartController extends GetxController {
         }
 
         restaurantCarts.refresh();
+        update();
       }
 
       // Load current cart owner ID
@@ -276,11 +304,13 @@ class CartController extends GetxController {
       final item = entry['item'] as Map<String, dynamic>;
       final quantity = entry['quantity'] as int;
       final restaurantName = entry['restaurantName'] as String? ?? 'مطعم';
+      final restaurantPhone = entry['restaurantPhone'] as String? ?? '';
       return {
         ...item,
         'cartQuantity': quantity,
         'ownerId': entry['ownerId'],
         'restaurantName': restaurantName,
+        'restaurantPhone': restaurantPhone,
       };
     }).toList();
   }
@@ -290,28 +320,29 @@ class CartController extends GetxController {
   double get totalPrice => getTotalPrice();
   List<Map<String, dynamic>> get cartItemsList => getCartItemsList();
 
-  /// Get all restaurant carts info
+  /// Get all restaurant carts info (one map per restaurant; name and phone from stored cart)
   List<Map<String, dynamic>> get restaurantCartsInfo {
     return restaurantCarts.entries.map((entry) {
       final ownerId = entry.key;
       final cart = entry.value;
-      final restaurantName = cart.values.isNotEmpty
-          ? cart.values.first['restaurantName'] as String? ?? 'مطعم'
-          : 'مطعم';
+      final first = cart.values.isNotEmpty ? cart.values.first : null;
+      final restaurantName = first?['restaurantName'] as String? ?? 'مطعم';
+      final restaurantPhone = first?['restaurantPhone'] as String? ?? '';
       final itemCount = cart.values.fold(
         0,
-        (sum, entry) => sum + (entry['quantity'] as int),
+        (sum, e) => sum + (e['quantity'] as int),
       );
-      final total = cart.values.fold(0.0, (sum, entry) {
-        final item = entry['item'] as Map<String, dynamic>;
+      final total = cart.values.fold(0.0, (sum, e) {
+        final item = e['item'] as Map<String, dynamic>;
         final price = double.tryParse(item['price']?.toString() ?? '0') ?? 0.0;
-        final quantity = entry['quantity'] as int;
+        final quantity = e['quantity'] as int;
         return sum + (price * quantity);
       });
 
       return {
         'ownerId': ownerId,
         'restaurantName': restaurantName,
+        'restaurantPhone': restaurantPhone,
         'itemCount': itemCount,
         'totalPrice': total,
       };
@@ -369,24 +400,46 @@ class CartController extends GetxController {
     return buffer.toString();
   }
 
-  /// Gets restaurant phone number from Firestore
+  /// Gets restaurant phone (from stored cart or by fetching; supports owner_id or restaurant id)
   Future<String?> _getRestaurantPhone(String ownerId) async {
-    if (ownerId.isEmpty) {
-      return null;
+    if (ownerId.isEmpty) return null;
+    // Prefer phone stored in cart if available
+    final cart = restaurantCarts[ownerId];
+    if (cart != null && cart.isNotEmpty) {
+      final first = cart.values.first;
+      final stored = first['restaurantPhone'] as String?;
+      if (stored != null && stored.isNotEmpty) return stored;
     }
-
     try {
-      final restaurantInfo = await _restaurantService
-          .getRestaurantInfoByOwnerId(ownerId);
-      if (restaurantInfo != null) {
-        return restaurantInfo['phone'] as String?;
-      }
-      return null;
+      final restaurantInfo = await _getRestaurantInfo(ownerId);
+      return restaurantInfo?['phone']?.toString();
     } catch (e) {
-      // ignore: avoid_print
       print('[CartController] Error getting restaurant phone: $e');
       return null;
     }
+  }
+
+  /// Refresh restaurant name and phone for all carts (e.g. when opening cart page)
+  Future<void> refreshRestaurantInfoForCarts() async {
+    for (final ownerId in restaurantCarts.keys.toList()) {
+      final info = await _getRestaurantInfo(ownerId);
+      if (info == null) continue;
+      final name = info['name'] as String? ?? 'مطعم';
+      final phone = (info['phone'] ?? '').toString().trim();
+      final cart = restaurantCarts[ownerId];
+      if (cart == null) continue;
+      for (final itemId in cart.keys.toList()) {
+        final entry = cart[itemId]!;
+        cart[itemId] = {
+          ...entry,
+          'restaurantName': name,
+          'restaurantPhone': phone,
+        };
+      }
+    }
+    restaurantCarts.refresh();
+    update();
+    _saveCartData();
   }
 
   // /// Shows a dialog to select which WhatsApp app to use

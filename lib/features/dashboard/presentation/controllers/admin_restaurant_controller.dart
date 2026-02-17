@@ -1,9 +1,11 @@
 import 'package:get/get.dart';
+import 'package:mata3mna/core/databases/cache/cache_helper.dart';
 import 'package:mata3mna/features/dashboard/data/services/admin_firestore_service.dart';
 
 /// Controller for managing restaurants in admin dashboard
 class AdminRestaurantController extends GetxController {
   final AdminFirestoreService _adminService = Get.find<AdminFirestoreService>();
+  final CacheHelper _cacheHelper = Get.find<CacheHelper>();
 
   final RxList<Map<String, dynamic>> restaurants = <Map<String, dynamic>>[].obs;
   final RxBool isLoading = false.obs;
@@ -21,36 +23,20 @@ class AdminRestaurantController extends GetxController {
     isLoading.value = true;
     errorMessage.value = '';
 
-    _adminService.getAllRestaurants().listen(
-      (restaurantsList) {
-        restaurants.value = restaurantsList;
-        isLoading.value = false;
-        errorMessage.value = ''; // Clear any previous errors
-      },
-      onError: (error) {
-        print('[AdminRestaurantController] Error loading restaurants: $error');
-        final errorStr = error.toString();
-
-        String userFriendlyError = 'خطأ في تحميل المطاعم: $error';
-
-        if (errorStr.contains('permission-denied') ||
-            errorStr.contains('PERMISSION_DENIED')) {
-          userFriendlyError =
-              'خطأ في الصلاحيات: ليس لديك صلاحية لعرض المطاعم.\n'
-              'يرجى:\n'
-              '1. تسجيل الدخول مرة أخرى كمسؤول\n'
-              '2. التحقق من إعدادات Firebase Security Rules';
-        } else if (errorStr.contains('unavailable') ||
-            errorStr.contains('UNAVAILABLE')) {
-          userFriendlyError =
-              'خطأ في الاتصال: لا يمكن الاتصال بخدمة Firebase.\n'
-              'يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى';
-        }
-
-        errorMessage.value = userFriendlyError;
-        isLoading.value = false;
-      },
-    );
+    _adminService
+        .getAllRestaurants()
+        .then((restaurantsList) {
+          restaurants.value = restaurantsList;
+          isLoading.value = false;
+          errorMessage.value = '';
+        })
+        .catchError((error) {
+          print(
+            '[AdminRestaurantController] Error loading restaurants: $error',
+          );
+          errorMessage.value = 'خطأ في تحميل المطاعم: $error';
+          isLoading.value = false;
+        });
   }
 
   /// Get filtered restaurants based on search query
@@ -178,13 +164,60 @@ class AdminRestaurantController extends GetxController {
     }
   }
 
-  /// Delete a restaurant
+  /// Delete a restaurant and all its associated data (menu items, categories)
   Future<bool> deleteRestaurant(String restaurantId) async {
     try {
       isLoading.value = true;
       errorMessage.value = '';
 
-      await _adminService.deleteRestaurant(restaurantId);
+      // Delete restaurant and get ownerId/ownerEmail for cache cleanup
+      final result = await _adminService.deleteRestaurant(restaurantId);
+      final ownerId = result['ownerId'] ?? '';
+
+      // Delete categories and category images from cache
+      if (ownerId.isNotEmpty) {
+        try {
+          // Get categories from cache first (before deleting) to delete their images
+          final categoriesKey = 'menuCategories_$ownerId';
+          final savedCategories = _cacheHelper.getStringList(
+            key: categoriesKey,
+          );
+
+          // Delete all category images for this owner
+          if (savedCategories != null && savedCategories.isNotEmpty) {
+            for (final category in savedCategories) {
+              final imageKey = '${ownerId}_$category';
+              await _cacheHelper.removeCategoryImage(imageKey);
+            }
+          }
+
+          // Also try to delete common category images as fallback
+          final commonCategories = [
+            'المقبلات',
+            'الأطباق الرئيسية',
+            'الحلويات',
+            'المشروبات',
+            'غير مصنف',
+          ];
+
+          for (final category in commonCategories) {
+            final imageKey = '${ownerId}_$category';
+            await _cacheHelper.removeCategoryImage(imageKey);
+          }
+
+          // Delete categories list from cache
+          await _cacheHelper.removeData(key: categoriesKey);
+
+          print(
+            '[AdminRestaurantController] Deleted categories and images from cache for ownerId: $ownerId',
+          );
+        } catch (e) {
+          // Log error but don't fail the deletion
+          print(
+            '[AdminRestaurantController] Error deleting categories from cache: $e',
+          );
+        }
+      }
 
       isLoading.value = false;
       return true;

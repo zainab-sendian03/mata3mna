@@ -1,5 +1,8 @@
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:mata3mna/config/routes/app_pages.dart';
+import 'package:mata3mna/features/auth/presentation/controllers/auth_controller.dart';
 import 'package:mata3mna/features/auth/presentation/pages/login_page.dart';
 import 'package:mata3mna/features/auth/presentation/pages/admin_login_page.dart';
 import 'package:mata3mna/features/auth/presentation/pages/sign_up_page.dart';
@@ -21,6 +24,12 @@ import 'package:mata3mna/config/routes/route_middleware.dart';
 
 class AppRoutes {
   static final List<GetPage> routes = [
+    // Splash/Home route as fallback
+    GetPage(
+      name: AppPages.splash,
+      page: () => const ChooseRolePage(),
+      transition: Transition.fadeIn,
+    ),
     GetPage(
       name: AppPages.root,
       page: () => const ChooseRolePage(),
@@ -45,12 +54,27 @@ class AppRoutes {
     GetPage(
       name: AppPages.verifyEmail,
       page: () {
-        final args = Get.arguments as Map<String, dynamic>;
+        final args = Get.arguments as Map<String, dynamic>?;
+        final authController = Get.find<AuthController>();
+        final email = args?['email'] as String? ??
+            Supabase.instance.client.auth.currentUser?.email ??
+            '';
         return VerifyEmailScreen(
-          email: args['email'],
-          onResendVerification: args['onResendVerification'],
-          onCheckVerification: args['onCheckVerification'],
-          onLogout: args['onLogout'],
+          email: email,
+          onResendVerification: args?['onResendVerification'] as VoidCallback? ??
+              () => authController.sendEmailVerification(),
+          onCheckVerification: args?['onCheckVerification'] as VoidCallback? ??
+              () async {
+                final isVerified = await authController.checkEmailVerification();
+                if (isVerified) {
+                  Get.offAllNamed(AppPages.completeRestaurantInfo);
+                }
+              },
+          onLogout: args?['onLogout'] as VoidCallback? ??
+              () async {
+                await authController.signOut();
+                Get.offAllNamed(AppPages.root);
+              },
         );
       },
       transition: Transition.fadeIn,

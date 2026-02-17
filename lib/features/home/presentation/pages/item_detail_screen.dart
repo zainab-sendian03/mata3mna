@@ -7,6 +7,7 @@ import 'package:mata3mna/config/routes/app_pages.dart';
 import 'package:mata3mna/config/themes/app_icon.dart';
 import 'package:mata3mna/config/themes/assets.dart';
 import 'package:mata3mna/core/constants/custom_app_bar.dart';
+import 'package:mata3mna/core/widgets/expandable_text.dart';
 import 'package:mata3mna/features/cart/presentation/controllers/cart_controller.dart';
 import 'package:mata3mna/features/restaurant_info/data/services/restaurant_firestore_service.dart';
 import 'package:sizer/sizer.dart';
@@ -21,8 +22,8 @@ class ItemDetailScreen extends StatefulWidget {
 
 class _ItemDetailScreenState extends State<ItemDetailScreen> {
   final CartController _cartController = Get.find<CartController>();
-  final RestaurantFirestoreService _restaurantService =
-      Get.find<RestaurantFirestoreService>();
+  final RestaurantSupabaseService _restaurantService =
+      Get.find<RestaurantSupabaseService>();
 
   Map<String, dynamic>? _item;
   Map<String, dynamic>? _restaurant;
@@ -44,7 +45,7 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
         if (ownerId != null && ownerId.isNotEmpty) {
           try {
             final restaurantInfo = await _restaurantService
-                .getRestaurantInfoByOwnerId(ownerId);
+                .getRestaurantByOwnerId(ownerId);
             if (restaurantInfo != null && mounted) {
               setState(() {
                 _restaurant = restaurantInfo;
@@ -80,23 +81,32 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
   void _addToCart() async {
     if (_item == null) return;
 
-    final ownerId = _item!['ownerId'] as String?;
-    final itemName = _item!['name'] as String? ?? '';
+    // Cart key: owner_id when present, else restaurant_id (your DB may have owner_id null)
+    final ownerOrRestaurantId = (_item!['ownerId'] ?? _item!['owner_id'] ?? _item!['restaurant_id'] ?? _restaurant?['id'] ?? '').toString().trim();
+    final itemName = (_item!['name'] ?? '').toString();
 
-    if (ownerId != null && ownerId.isNotEmpty) {
-      // Add item multiple times based on quantity
-      for (int i = 0; i < _quantity; i++) {
-        await _cartController.addItem(_item!, ownerId);
-      }
-
+    if (ownerOrRestaurantId.isEmpty) {
       Get.snackbar(
-        'تمت الإضافة',
-        'تم إضافة $itemName إلى السلة',
+        'خطأ',
+        'لا يمكن تحديد المطعم لهذا الصنف',
         snackPosition: SnackPosition.BOTTOM,
         duration: const Duration(seconds: 2),
         margin: EdgeInsets.all(16),
       );
+      return;
     }
+
+    for (int i = 0; i < _quantity; i++) {
+      await _cartController.addItem(_item!, ownerOrRestaurantId);
+    }
+
+    Get.snackbar(
+      'تمت الإضافة',
+      'تم إضافة $itemName إلى السلة',
+      snackPosition: SnackPosition.BOTTOM,
+      duration: const Duration(seconds: 2),
+      margin: EdgeInsets.all(16),
+    );
   }
 
   @override
@@ -131,12 +141,12 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
       );
     }
 
-    final itemName = _item!['name'] ?? 'بدون اسم';
-    final itemPrice = _item!['price'] ?? '';
-    final itemDescription = _item!['description'] ?? '';
-    final itemImage = _item!['image'] ?? '';
-    final itemCategory = _item!['category'] ?? '';
-    final restaurantName = _item!['restaurantName'] ?? '';
+    final itemName = (_item!['name'] ?? 'بدون اسم').toString();
+    final itemPrice = (_item!['price'] ?? '').toString().trim();
+    final itemDescription = (_item!['description'] ?? '').toString().trim();
+    final itemImage = (_item!['image'] ?? '').toString();
+    final itemCategory = (_item!['category'] ?? '').toString().trim();
+    final restaurantName = (_item!['restaurantName'] ?? '').toString().trim();
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -144,10 +154,19 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
         title: itemName,
         variant: CustomAppBarVariant.standard,
         showBackButton: true,
-        onBackPressed: () => Get.offNamed(
-          AppPages.restaurantDetail,
-          arguments: {'restaurant': _restaurant, 'ownerId': _item!['ownerId']},
-        ),
+        onBackPressed: () {
+          // Use item's ownerId/restaurant_id so restaurant-detail can load even when _restaurant is null
+          final ownerId = (_item!['ownerId'] ?? _item!['owner_id'] ?? _restaurant?['ownerId'] ?? _restaurant?['owner_id'] ?? _item!['restaurant_id'] ?? '').toString().trim();
+          final restaurantId = (_restaurant?['id'] ?? _item!['restaurant_id'] ?? '').toString().trim();
+          Get.offNamed(
+            AppPages.restaurantDetail,
+            arguments: {
+              'restaurant': _restaurant,
+              'ownerId': ownerId.isNotEmpty ? ownerId : null,
+              if (restaurantId.isNotEmpty) 'restaurantId': restaurantId,
+            },
+          );
+        },
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -214,7 +233,15 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                       ),
                     ),
                     SizedBox(height: 1.h),
-                    Text(itemDescription, style: theme.textTheme.bodyLarge),
+                    ExpandableText(
+                      text: itemDescription,
+                      maxLines: 3,
+                      style: theme.textTheme.bodyLarge,
+                      linkStyle: theme.textTheme.bodyLarge?.copyWith(
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     SizedBox(height: 2.h),
                   ],
                   // Quantity selector

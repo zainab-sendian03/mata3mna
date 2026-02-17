@@ -4,25 +4,27 @@ import 'package:mata3mna/features/dashboard/data/services/dashboard_firestore_se
 
 /// Controller for managing dashboard state and statistics
 class DashboardController extends GetxController {
-  final DashboardFirestoreService _dashboardService;
+  final DashboardSupabaseService _dashboardService;
   final CacheHelper _cacheHelper;
 
   DashboardController({
-    required DashboardFirestoreService dashboardService,
+    required DashboardSupabaseService dashboardService,
     required CacheHelper cacheHelper,
-  })  : _dashboardService = dashboardService,
-        _cacheHelper = cacheHelper;
+  }) : _dashboardService = dashboardService,
+       _cacheHelper = cacheHelper;
 
   // Observable state
   final RxInt totalRestaurants = 0.obs;
   final RxInt totalMenuItems = 0.obs;
   final RxInt totalCategories = 0.obs;
   final RxInt totalUsers = 0.obs;
-  final RxList<Map<String, dynamic>> popularItems = <Map<String, dynamic>>[].obs;
+  final RxList<Map<String, dynamic>> popularItems =
+      <Map<String, dynamic>>[].obs;
   final RxMap<String, int> itemsByCategory = <String, int>{}.obs;
   final RxList<Map<String, dynamic>> recentItems = <Map<String, dynamic>>[].obs;
   final RxMap<String, int> restaurantsByStatus = <String, int>{}.obs;
-  final RxList<Map<String, dynamic>> recentRestaurants = <Map<String, dynamic>>[].obs;
+  final RxList<Map<String, dynamic>> recentRestaurants =
+      <Map<String, dynamic>>[].obs;
   final RxBool isLoading = true.obs;
   final RxString errorMessage = ''.obs;
 
@@ -151,4 +153,3 @@ class DashboardController extends GetxController {
     await loadDashboardData();
   }
 }
-

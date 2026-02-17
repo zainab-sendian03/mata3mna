@@ -6,6 +6,7 @@ import 'package:get/get.dart';
 import 'package:mata3mna/config/routes/app_pages.dart';
 import 'package:mata3mna/config/themes/app_icon.dart';
 import 'package:mata3mna/config/themes/assets.dart';
+import 'package:mata3mna/core/widgets/expandable_text.dart';
 import 'package:mata3mna/features/home/presentation/controllers/customer_view_controller.dart';
 import 'package:mata3mna/features/cart/presentation/controllers/cart_controller.dart';
 import 'package:mata3mna/features/cart/presentation/cart_page.dart';
@@ -195,7 +196,7 @@ class _CustomerViewScreenState extends State<CustomerViewScreen>
                                 ),
                               ),
                               Text(
-                                'أهلاً بك في تطبيق مطاعمنا',
+                                'أهلاً بك في تطبيق مطاعمنا 🍽️',
                                 style: theme.textTheme.bodyMedium?.copyWith(
                                   color: Colors.white.withOpacity(0.9),
                                 ),
@@ -331,7 +332,25 @@ class _CustomerViewScreenState extends State<CustomerViewScreen>
   }
 
   Widget _buildLoadingState() {
-    return Center(child: CircularProgressIndicator());
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(
+            color: colorScheme.primary,
+          ),
+          SizedBox(height: 2.h),
+          Text(
+            'جاري تحميل المطاعم...',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildActiveFiltersChips(ThemeData theme, ColorScheme colorScheme) {
@@ -418,7 +437,7 @@ class _CustomerViewScreenState extends State<CustomerViewScreen>
                 () => _buildFilterDropdown(
                   label: 'المحافظة',
                   value: _controller.selectedGovernorate.value,
-                  items: _controller.governorates,
+                  items: _controller.governorates.toList(),
                   onChanged: (value) {
                     _controller.setGovernorate(value);
                     setModalState(() {});
@@ -488,6 +507,13 @@ class _CustomerViewScreenState extends State<CustomerViewScreen>
     required ColorScheme colorScheme,
     bool enabled = true,
   }) {
+    print(
+      '[CustomerViewScreen] _buildFilterDropdown: $label, items count: ${items.length}, enabled: $enabled',
+    );
+    if (items.isNotEmpty) {
+      print('[CustomerViewScreen] First few items: ${items.take(3).toList()}');
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -521,6 +547,9 @@ class _CustomerViewScreenState extends State<CustomerViewScreen>
             hint: Text('اختر $label'),
             items: () {
               final uniqueItems = items.toSet().toList()..sort();
+              print(
+                '[CustomerViewScreen] Creating dropdown items for $label: ${uniqueItems.length} unique items',
+              );
               return [
                 DropdownMenuItem<String>(value: null, child: Text('الكل')),
                 ...uniqueItems.map(
@@ -583,10 +612,11 @@ class _CustomerViewScreenState extends State<CustomerViewScreen>
   ) {
     final name = restaurant['name'] ?? 'بدون اسم';
     final description = restaurant['description'] ?? '';
-    final logoPath = restaurant['logoPath'] ?? '';
+    final logoPath = restaurant['logoPath'] ?? restaurant['logo_path'] ?? '';
     final governorate = restaurant['governorate'] ?? '';
     final city = restaurant['city'] ?? '';
-    final ownerId = restaurant['ownerId'] ?? '';
+    // Use owner_id when present, else restaurant id (DB may have owner_id null)
+    final ownerId = (restaurant['ownerId'] ?? restaurant['owner_id'] ?? restaurant['id'] ?? '').toString().trim();
 
     return Container(
       margin: EdgeInsets.symmetric(horizontal: 2.w, vertical: 1.h),
@@ -596,9 +626,14 @@ class _CustomerViewScreenState extends State<CustomerViewScreen>
         children: [
           InkWell(
             onTap: () {
+              final restaurantId = (restaurant['id'] ?? '').toString().trim();
               Get.toNamed(
                 AppPages.restaurantDetail,
-                arguments: {'restaurant': restaurant, 'ownerId': ownerId},
+                arguments: {
+                  'restaurant': restaurant,
+                  'ownerId': ownerId,
+                  if (restaurantId.isNotEmpty) 'restaurantId': restaurantId,
+                },
               );
             },
             borderRadius: BorderRadius.circular(12),
@@ -659,15 +694,18 @@ class _CustomerViewScreenState extends State<CustomerViewScreen>
                         ),
                         if (description.isNotEmpty) ...[
                           SizedBox(height: 0.5.h),
-                          Text(
-                            description,
+                          ExpandableText(
+                            text: description,
+                            maxLines: 2,
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: colorScheme.onSurface.withValues(
                                 alpha: 0.7,
                               ),
                             ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                            linkStyle: theme.textTheme.bodyMedium?.copyWith(
+                              color: colorScheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ],
                         if (governorate.isNotEmpty || city.isNotEmpty) ...[

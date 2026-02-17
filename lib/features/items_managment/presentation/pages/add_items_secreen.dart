@@ -15,6 +15,8 @@ import 'package:mata3mna/features/items_managment/presentation/widgets/category_
 import 'package:mata3mna/features/items_managment/presentation/widgets/image_picker_widget.dart';
 import 'package:mata3mna/features/items_managment/presentation/widgets/price_input_widget.dart';
 import 'package:mata3mna/features/restaurant_info/data/services/restaurant_firestore_service.dart';
+import 'package:mata3mna/features/dashboard/data/services/admin_firestore_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:sizer/sizer.dart';
 
 /// Screen for adding new menu items or editing existing ones
@@ -34,12 +36,13 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   final _nameController = TextEditingController();
   final _priceController = TextEditingController();
   final _descriptionController = TextEditingController();
-  final MenuFirestoreService _menuService = Get.find<MenuFirestoreService>();
+  final MenuSupabaseService _menuService = Get.find<MenuSupabaseService>();
   final SupabaseStorageService _storageService =
       Get.find<SupabaseStorageService>();
   final CacheHelper _cacheHelper = Get.find<CacheHelper>();
-  final RestaurantFirestoreService _restaurantService =
-      Get.find<RestaurantFirestoreService>();
+  final RestaurantSupabaseService _restaurantService =
+      Get.find<RestaurantSupabaseService>();
+  final AdminFirestoreService _adminService = AdminFirestoreService();
 
   String? _selectedCategory;
   XFile? _selectedImage;
@@ -48,13 +51,17 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   int _currentBottomNavIndex = 1;
   String? _restaurantLogoUrl;
 
-  // Available categories - loaded from cache
-  late List<String> _categories;
+  // Available categories - loaded from Firestore
+  List<String> _categories = [];
 
   @override
   void initState() {
     super.initState();
-    _loadCategories();
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    await _loadCategories();
     _initializeFormData();
     _setupChangeListeners();
     _loadRestaurantLogo();
@@ -62,10 +69,20 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
 
   Future<void> _loadRestaurantLogo() async {
     try {
-      final ownerId = _cacheHelper.getData(key: 'userUid') as String?;
+      // Get ownerId from cache first, then from Supabase Auth if not found
+      String? ownerId = _cacheHelper.getData(key: 'userUid') as String?;
+      if (ownerId == null || ownerId.isEmpty) {
+        final currentUser = Supabase.instance.client.auth.currentUser;
+        if (currentUser != null && currentUser.id.isNotEmpty) {
+          ownerId = currentUser.id;
+          await _cacheHelper.saveData(key: 'userUid', value: ownerId);
+        }
+      }
+      
       if (ownerId != null && ownerId.isNotEmpty) {
-        final restaurantInfo = await _restaurantService
-            .getRestaurantInfoByOwnerId(ownerId);
+        final restaurantInfo = await _restaurantService.getRestaurantByOwnerId(
+          ownerId,
+        );
         if (restaurantInfo != null && mounted) {
           setState(() {
             _restaurantLogoUrl = restaurantInfo['logoPath'] as String?;
@@ -80,31 +97,76 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     }
   }
 
-  void _loadCategories() {
-    final ownerId = _cacheHelper.getData(key: 'userUid') as String?;
+  Future<void> _loadCategories() async {
+    // Get ownerId from cache first, then from Supabase Auth if not found
+    String? ownerId = _cacheHelper.getData(key: 'userUid') as String?;
+    if (ownerId == null || ownerId.isEmpty) {
+      final currentUser = Supabase.instance.client.auth.currentUser;
+      if (currentUser != null && currentUser.id.isNotEmpty) {
+        ownerId = currentUser.id;
+        await _cacheHelper.saveData(key: 'userUid', value: ownerId);
+      }
+    }
+    
     if (ownerId == null || ownerId.isEmpty) {
       // Default categories if no user ID
       _categories = [];
       return;
     }
 
-    // Use user-specific key for categories
-    final userCategoriesKey = 'menuCategories_$ownerId';
-    final savedCategories = _cacheHelper.getStringList(key: userCategoriesKey);
-    if (savedCategories != null && savedCategories.isNotEmpty) {
-      _categories = savedCategories;
-    } else {
-      // Default categories
-      _categories = [];
+    // Categories are related to restaurant_id: load by restaurant
+    try {
+      final restaurantInfo = await _restaurantService.getRestaurantByOwnerId(ownerId);
+      final restaurantId = restaurantInfo?['id']?.toString() ?? '';
+      final firestoreCategories = restaurantId.isNotEmpty
+          ? await _adminService.getCategoriesByRestaurantId(restaurantId)
+          : await _adminService.getAllCategories();
+      print(
+        '[AddEditItemScreen] Loaded ${firestoreCategories.length} categories (restaurantId: $restaurantId): $firestoreCategories',
+      );
+
+      if (firestoreCategories.isNotEmpty) {
+        _categories = firestoreCategories;
+        final userCategoriesKey = 'menuCategories_$ownerId';
+        _cacheHelper.saveData(
+          key: userCategoriesKey,
+          value: firestoreCategories,
+        );
+      } else {
+        _categories = [];
+      }
+
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      print('[AddEditItemScreen] Error loading categories from Firestore: $e');
+      // Fallback to cache if Firestore fails
+      final userCategoriesKey = 'menuCategories_$ownerId';
+      final savedCategories = _cacheHelper.getStringList(
+        key: userCategoriesKey,
+      );
+      if (savedCategories != null && savedCategories.isNotEmpty) {
+        _categories = savedCategories;
+      } else {
+        // Default categories
+        _categories = [];
+      }
+
+      if (mounted) {
+        setState(() {});
+      }
     }
   }
 
   void _initializeFormData() {
     if (widget.itemData != null) {
-      _nameController.text = widget.itemData!['name'] ?? '';
-      _priceController.text = widget.itemData!['price'] ?? '';
-      _descriptionController.text = widget.itemData!['description'] ?? '';
-      _selectedCategory = widget.itemData!['category'];
+      final d = widget.itemData!;
+      _nameController.text = (d['name'] ?? '').toString();
+      _priceController.text = (d['price'] ?? '').toString();
+      _descriptionController.text = (d['description'] ?? '').toString();
+      final cat = d['category'];
+      _selectedCategory = cat == null ? null : cat.toString();
     }
   }
 
@@ -124,10 +186,44 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     String category,
     XFile? categoryImage,
   ) async {
-    final ownerId = _cacheHelper.getData(key: 'userUid') as String?;
+    // Get ownerId from cache first, then from Supabase Auth if not found
+    String? ownerId = _cacheHelper.getData(key: 'userUid') as String?;
+    if (ownerId == null || ownerId.isEmpty) {
+      final currentUser = Supabase.instance.client.auth.currentUser;
+      if (currentUser != null && currentUser.id.isNotEmpty) {
+        ownerId = currentUser.id;
+        await _cacheHelper.saveData(key: 'userUid', value: ownerId);
+      }
+    }
+    
     if (ownerId == null || ownerId.isEmpty) {
       // Can't save without user ID
       return;
+    }
+
+    // Add category to Firestore (categories are related to restaurant_id)
+    try {
+      final restaurantInfo = await _restaurantService.getRestaurantByOwnerId(ownerId);
+      final restaurantId = restaurantInfo?['id']?.toString();
+      await _adminService.createCategory(category, restaurantId: restaurantId);
+      print(
+        '[AddEditItemScreen] Category "$category" added to Firestore (restaurantId: $restaurantId)',
+      );
+    } catch (e) {
+      print('[AddEditItemScreen] Error adding category to Firestore: $e');
+      // Continue even if Firestore creation fails - category is still added locally
+      if (mounted && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'تم إضافة الفئة محلياً، لكن فشل حفظها في قاعدة البيانات.',
+            ),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
 
     // Always create the category first, regardless of image
@@ -574,7 +670,20 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
       final description = _descriptionController.text.trim();
       final restaurantName =
           _cacheHelper.getData(key: 'restaurantName') as String? ?? '';
-      final ownerId = _cacheHelper.getData(key: 'userUid') as String?;
+      
+      // Get ownerId from cache first, then from Supabase Auth if not found
+      String? ownerId = _cacheHelper.getData(key: 'userUid') as String?;
+      if (ownerId == null || ownerId.isEmpty) {
+        // Try to get from Supabase Auth
+        final currentUser = Supabase.instance.client.auth.currentUser;
+        if (currentUser != null && currentUser.id.isNotEmpty) {
+          ownerId = currentUser.id;
+          // Save to cache for future use
+          await _cacheHelper.saveData(key: 'userUid', value: ownerId);
+          print('[AddEditItemScreen] Got ownerId from Supabase Auth: $ownerId');
+        }
+      }
+      
       String? uploadedImageUrl;
 
       // Upload image if provided, otherwise use restaurant logo as fallback

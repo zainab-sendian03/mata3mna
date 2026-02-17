@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:mata3mna/config/themes/app_icon.dart';
+import 'package:mata3mna/core/widgets/expandable_text.dart';
 import 'package:sizer/sizer.dart';
 
 /// Individual menu item card with swipe actions
@@ -170,11 +171,14 @@ class MenuItemCard extends StatelessWidget {
         if (item['description'] != null &&
             item['description'].toString().isNotEmpty) ...[
           SizedBox(height: 0.5.h),
-          Text(
-            item['description'],
-            style: theme.textTheme.bodySmall,
+          ExpandableText(
+            text: item['description'].toString(),
             maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall,
+            linkStyle: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ],

@@ -1,13 +1,10 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:mata3mna/features/auth/data/datesources/auth_remote_data_source.dart';
 import 'package:mata3mna/features/auth/data/repositories/auth_repository_impl.dart';
 import 'package:mata3mna/features/auth/domain/repositories/auth_repository.dart';
 import 'package:mata3mna/core/services/supabase_storage_service.dart';
 import 'package:mata3mna/features/auth/presentation/controllers/auth_controller.dart';
 import 'package:mata3mna/features/home/data/services/menu_firestore_service.dart';
-import 'package:mata3mna/features/restaurant_info/data/services/restaurant_firestore_service.dart';
 import 'package:mata3mna/features/cart/presentation/controllers/cart_controller.dart';
 import 'package:mata3mna/features/home/presentation/controllers/customer_view_controller.dart';
 import 'package:mata3mna/features/dashboard/data/services/dashboard_firestore_service.dart';
@@ -15,19 +12,19 @@ import 'package:mata3mna/features/dashboard/data/services/location_firestore_ser
 import 'package:mata3mna/features/dashboard/data/services/admin_firestore_service.dart';
 import 'package:mata3mna/features/dashboard/presentation/controllers/dashboard_controller.dart';
 import 'package:mata3mna/core/databases/cache/cache_helper.dart';
+import 'package:mata3mna/features/restaurant_info/data/services/restaurant_firestore_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ServiceLocator {
   static void init() {
-    // External dependencies
-    Get.put<FirebaseAuth>(FirebaseAuth.instance);
-    Get.put<GoogleSignIn>(GoogleSignIn());
+    // Use Supabase.instance.client so auth and CRUD share the SAME session.
+    // Previously a separate SupabaseClient was used for auth, so login never
+    // persisted to the client used by CRUD services.
+    Get.lazyPut<SupabaseClient>(() => Supabase.instance.client);
 
-    // Data sources
-    Get.put<AuthRemoteDataSource>(
-      AuthRemoteDataSourceImpl(
-        auth: Get.find<FirebaseAuth>(),
-        googleSignIn: Get.find<GoogleSignIn>(),
-      ),
+    Get.lazyPut<AuthRemoteDataSource>(
+      () => AuthRemoteDataSourceImpl(supabase: Get.find<SupabaseClient>()),
+      fenix: true,
     );
 
     // Repositories
@@ -35,34 +32,24 @@ class ServiceLocator {
       AuthRepositoryImpl(Get.find<AuthRemoteDataSource>()),
     );
 
-    // Services (lazy - only created when needed)
-    Get.lazyPut<RestaurantFirestoreService>(
-      () => RestaurantFirestoreService(),
-      fenix: true,
-    );
     Get.lazyPut<SupabaseStorageService>(
       () => SupabaseStorageService(),
       fenix: true,
     );
-    Get.lazyPut<MenuFirestoreService>(
-      () => MenuFirestoreService(
-        restaurantService: Get.find<RestaurantFirestoreService>(),
-      ),
+    Get.lazyPut<MenuSupabaseService>(() => MenuSupabaseService(), fenix: true);
+    Get.lazyPut<DashboardSupabaseService>(
+      () => DashboardSupabaseService(),
       fenix: true,
     );
-    Get.lazyPut<DashboardFirestoreService>(
-      () => DashboardFirestoreService(),
-      fenix: true,
-    );
-    Get.lazyPut<LocationFirestoreService>(
-      () => LocationFirestoreService(),
+    Get.lazyPut<LocationSupabaseService>(
+      () => LocationSupabaseService(),
       fenix: true,
     );
     Get.lazyPut<AdminFirestoreService>(
       () => AdminFirestoreService(),
       fenix: true,
     );
-
+    Get.lazyPut(() => RestaurantSupabaseService());
     // Controllers
     // AuthController is needed immediately for auth state checking
     Get.put<AuthController>(
@@ -81,7 +68,7 @@ class ServiceLocator {
     // DashboardController (lazy - created when needed)
     Get.lazyPut<DashboardController>(
       () => DashboardController(
-        dashboardService: Get.find<DashboardFirestoreService>(),
+        dashboardService: Get.find<DashboardSupabaseService>(),
         cacheHelper: Get.find<CacheHelper>(),
       ),
       fenix: true,

@@ -4,8 +4,14 @@ import 'package:mata3mna/features/dashboard/presentation/controllers/admin_resta
 import 'package:mata3mna/features/dashboard/data/services/location_firestore_service.dart';
 import 'package:mata3mna/features/dashboard/data/services/admin_firestore_service.dart';
 import 'package:mata3mna/config/routes/app_pages.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:mata3mna/core/services/supabase_storage_service.dart';
+import 'package:mata3mna/core/widgets/expandable_text.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io';
+import 'dart:typed_data';
 
 /// Screen for managing restaurants in admin dashboard
 class AdminRestaurantManagementScreen extends StatelessWidget {
@@ -25,7 +31,7 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
     final isTablet = screenWidth > 768 && screenWidth <= 1200;
 
     // Check if admin is authenticated - if not, redirect to login
-    final currentUser = FirebaseAuth.instance.currentUser;
+    final currentUser = Supabase.instance.client.auth.currentUser;
     if (currentUser == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Get.offAllNamed(AppPages.adminLogin);
@@ -105,176 +111,188 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
         );
       }
 
-      return Column(
-        children: [
-          Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: isDesktop ? 24 : (isTablet ? 20 : 16),
-              vertical: isDesktop ? 16 : 12,
-            ),
-            decoration: BoxDecoration(
-              color: colorScheme.surface,
-              border: Border(
-                bottom: BorderSide(color: colorScheme.outline.withOpacity(0.2)),
+      return Material(
+        child: Column(
+          children: [
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: isDesktop ? 24 : (isTablet ? 20 : 16),
+                vertical: isDesktop ? 16 : 12,
               ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'إدارة المطاعم',
-                    style: isDesktop
-                        ? theme.textTheme.displaySmall?.copyWith(
-                            fontSize: 25,
-                            fontWeight: FontWeight.bold,
-                            color: colorScheme.onSurface,
-                          )
-                        : theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: colorScheme.onSurface,
-                          ),
-                  ),
-                ),
-                IconButton(
-                  icon: Icon(Icons.add, color: colorScheme.onSurface),
-                  onPressed: () =>
-                      _showAddEditRestaurantDialog(context, controller, null),
-                ),
-                IconButton(
-                  icon: Icon(Icons.refresh, color: colorScheme.onSurface),
-                  onPressed: () => controller.refresh(),
-                ),
-              ],
-            ),
-          ),
-          // Search bar
-          Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: isDesktop ? 40 : (isTablet ? 32 : 20),
-              vertical: isDesktop ? 24 : (isTablet ? 20 : 16),
-            ),
-            decoration: BoxDecoration(
-              color: colorScheme.surface,
-              border: Border(
-                bottom: BorderSide(color: colorScheme.outline.withOpacity(0.2)),
-              ),
-            ),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: isDesktop ? 800 : double.infinity,
-                ),
-                child: TextField(
-                  keyboardType: TextInputType.text,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: colorScheme.onSurface.withOpacity(0.7),
-                    fontSize: isDesktop ? 18 : (isTablet ? 16 : 14),
-                  ),
-                  onChanged: (value) => controller.searchQuery.value = value,
-                  decoration: InputDecoration(
-                    hintText: 'بحث في المطاعم...',
-                    hintStyle: theme.textTheme.bodyLarge?.copyWith(
-                      color: colorScheme.onSurface.withOpacity(0.7),
-                      fontSize: isDesktop ? 18 : (isTablet ? 16 : 14),
-                    ),
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: controller.searchQuery.value.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () => controller.searchQuery.value = '',
-                          )
-                        : null,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: colorScheme.surfaceContainerHighest,
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: isDesktop ? 16 : 12,
-                      vertical: isDesktop ? 16 : 14,
-                    ),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                border: Border(
+                  bottom: BorderSide(
+                    color: colorScheme.outline.withOpacity(0.2),
                   ),
                 ),
               ),
-            ),
-          ),
-
-          // Restaurants list
-          Expanded(
-            child: controller.filteredRestaurants.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.restaurant,
-                          size: isDesktop ? 64.0 : (isTablet ? 56.0 : 48.0),
-                          color: colorScheme.onSurface.withOpacity(0.5),
-                        ),
-                        SizedBox(height: isDesktop ? 24 : (isTablet ? 20 : 16)),
-                        Text(
-                          controller.searchQuery.value.isNotEmpty
-                              ? 'لا توجد نتائج للبحث'
-                              : 'لا توجد مطاعم',
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: colorScheme.onSurface.withOpacity(0.7),
-                            fontSize: isDesktop ? 18 : (isTablet ? 16 : 14),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : Center(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: isDesktop ? 1400 : double.infinity,
+              child: Row(
+                children: [
+                  if (!hideAppBar)
+                    IconButton(
+                      icon: Icon(
+                        Icons.arrow_back,
+                        color: colorScheme.onSurface,
                       ),
-                      child: isDesktop
-                          ? GridView.builder(
-                              padding: EdgeInsets.all(24),
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 2,
-                                    crossAxisSpacing: 20,
-                                    mainAxisSpacing: 20,
-                                    childAspectRatio: 2.8,
-                                  ),
-                              itemCount: controller.filteredRestaurants.length,
-                              itemBuilder: (context, index) {
-                                final restaurant =
-                                    controller.filteredRestaurants[index];
-                                return _buildRestaurantCard(
-                                  context,
-                                  restaurant,
-                                  controller,
-                                  theme,
-                                  colorScheme,
-                                  isDesktop,
-                                  isTablet,
-                                );
-                              },
+                      onPressed: () => Get.back(),
+                    ),
+                  Expanded(
+                    child: Text(
+                      'إدارة المطاعم',
+                      style: isDesktop
+                          ? theme.textTheme.displaySmall?.copyWith(
+                              fontSize: 25,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurface,
                             )
-                          : ListView.builder(
-                              padding: EdgeInsets.all(isTablet ? 20 : 16),
-                              itemCount: controller.filteredRestaurants.length,
-                              itemBuilder: (context, index) {
-                                final restaurant =
-                                    controller.filteredRestaurants[index];
-                                return _buildRestaurantCard(
-                                  context,
-                                  restaurant,
-                                  controller,
-                                  theme,
-                                  colorScheme,
-                                  isDesktop,
-                                  isTablet,
-                                );
-                              },
+                          : theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurface,
                             ),
                     ),
                   ),
-          ),
-        ],
+                  IconButton(
+                    icon: Icon(Icons.add, color: colorScheme.onSurface),
+                    onPressed: () =>
+                        _showAddEditRestaurantDialog(context, controller, null),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.refresh, color: colorScheme.onSurface),
+                    onPressed: () => controller.refresh(),
+                  ),
+                ],
+              ),
+            ),
+            // Search bar
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: isDesktop ? 40 : (isTablet ? 32 : 20),
+                vertical: isDesktop ? 24 : (isTablet ? 20 : 16),
+              ),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                border: Border(
+                  bottom: BorderSide(
+                    color: colorScheme.outline.withOpacity(0.2),
+                  ),
+                ),
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: isDesktop ? 800 : double.infinity,
+                  ),
+                  child: TextField(
+                    keyboardType: TextInputType.text,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: colorScheme.onSurface.withOpacity(0.7),
+                      fontSize: isDesktop ? 18 : (isTablet ? 16 : 14),
+                    ),
+                    onChanged: (value) => controller.searchQuery.value = value,
+                    decoration: InputDecoration(
+                      hintText: 'بحث في المطاعم...',
+                      hintStyle: theme.textTheme.bodyLarge?.copyWith(
+                        color: colorScheme.onSurface.withOpacity(0.7),
+                        fontSize: isDesktop ? 18 : (isTablet ? 16 : 14),
+                      ),
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: controller.searchQuery.value.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () =>
+                                  controller.searchQuery.value = '',
+                            )
+                          : null,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: colorScheme.surfaceContainerHighest,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: isDesktop ? 16 : 12,
+                        vertical: isDesktop ? 16 : 14,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // Restaurants list
+            Expanded(
+              child: controller.filteredRestaurants.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.restaurant,
+                            size: isDesktop ? 64.0 : (isTablet ? 56.0 : 48.0),
+                            color: colorScheme.onSurface.withOpacity(0.5),
+                          ),
+                          SizedBox(
+                            height: isDesktop ? 24 : (isTablet ? 20 : 16),
+                          ),
+                          Text(
+                            controller.searchQuery.value.isNotEmpty
+                                ? 'لا توجد نتائج للبحث'
+                                : 'لا توجد مطاعم',
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: colorScheme.onSurface.withOpacity(0.7),
+                              fontSize: isDesktop ? 18 : (isTablet ? 16 : 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: isDesktop ? 1400 : double.infinity,
+                        ),
+                        child: isDesktop
+                            ? ListView.builder(
+                                padding: EdgeInsets.all(24),
+                                itemCount:
+                                    controller.filteredRestaurants.length,
+                                itemBuilder: (context, index) {
+                                  final restaurant =
+                                      controller.filteredRestaurants[index];
+                                  return _buildRestaurantCard(
+                                    context,
+                                    restaurant,
+                                    controller,
+                                    theme,
+                                    colorScheme,
+                                    isDesktop,
+                                    isTablet,
+                                  );
+                                },
+                              )
+                            : ListView.builder(
+                                padding: EdgeInsets.all(isTablet ? 20 : 16),
+                                itemCount:
+                                    controller.filteredRestaurants.length,
+                                itemBuilder: (context, index) {
+                                  final restaurant =
+                                      controller.filteredRestaurants[index];
+                                  return _buildRestaurantCard(
+                                    context,
+                                    restaurant,
+                                    controller,
+                                    theme,
+                                    colorScheme,
+                                    isDesktop,
+                                    isTablet,
+                                  );
+                                },
+                              ),
+                      ),
+                    ),
+            ),
+          ],
+        ),
       );
     });
   }
@@ -288,22 +306,36 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
     bool isDesktop,
     bool isTablet,
   ) {
-    final logoUrl = restaurant['logoPath'] as String? ?? '';
+    final logoUrl = restaurant['logo_path'] as String? ?? '';
     final status = restaurant['status'] as String? ?? 'active';
 
     final logoSize = isDesktop ? 100.0 : (isTablet ? 80.0 : 60.0);
     final cardPadding = isDesktop ? 20.0 : (isTablet ? 20.0 : 16.0);
     final cardSpacing = isDesktop ? 20.0 : (isTablet ? 16.0 : 12.0);
 
+    final restaurantId = (restaurant['id'] ?? '').toString();
+    final restaurantName = (restaurant['name'] ?? 'بدون اسم').toString();
+
     return Card(
       margin: EdgeInsets.only(bottom: isDesktop ? 10 : (isTablet ? 16 : 12)),
       elevation: isDesktop ? 4 : 2,
-
+      clipBehavior: Clip.none,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: colorScheme.outline),
       ),
-      child: Padding(
+      child: InkWell(
+        onTap: restaurantId.isNotEmpty
+            ? () => Get.toNamed(
+                  AppPages.adminItemManagement,
+                  arguments: {
+                    'restaurantId': restaurantId,
+                    'restaurantName': restaurantName,
+                  },
+                )
+            : null,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
         padding: EdgeInsets.all(cardPadding),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -345,6 +377,7 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Row(
                     children: [
@@ -422,14 +455,18 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
                   if (restaurant['description'] != null &&
                       restaurant['description'].toString().isNotEmpty) ...[
                     SizedBox(height: 8),
-                    Text(
-                      restaurant['description'].toString(),
+                    ExpandableText(
+                      text: restaurant['description'].toString(),
+                      maxLines: 2,
                       style: theme.textTheme.bodySmall?.copyWith(
                         fontSize: isDesktop ? 18 : (isTablet ? 18 : 16),
                         color: colorScheme.onSurface.withOpacity(0.6),
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                      linkStyle: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: isDesktop ? 18 : (isTablet ? 18 : 16),
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ],
@@ -438,6 +475,7 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
 
             // Actions
             Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
                   icon: const Icon(Icons.edit),
@@ -458,6 +496,7 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
             ),
           ],
         ),
+        ),
       ),
     );
   }
@@ -477,17 +516,22 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
     final descriptionController = TextEditingController(
       text: restaurant?['description'] ?? '',
     );
-    String? selectedOwnerId = restaurant?['ownerId'];
-    String? selectedOwnerEmail = restaurant?['ownerEmail'];
+    String? selectedOwnerId = restaurant?['owner_id'];
+    String? selectedOwnerEmail = restaurant?['owner_email'];
     Map<String, dynamic>? selectedOwner;
     final ownerPasswordController = TextEditingController();
 
     String? selectedGovernorate = restaurant?['governorate'];
     String? selectedCity = restaurant?['city'];
     String? selectedStatus = restaurant?['status'] ?? 'active';
+    String? logoUrl = restaurant?['logo_path'];
+    XFile? selectedLogo;
+    Uint8List? selectedLogoBytes;
 
-    final locationService = Get.find<LocationFirestoreService>();
+    final locationService = Get.find<LocationSupabaseService>();
     final adminService = Get.find<AdminFirestoreService>();
+    final storageService = Get.find<SupabaseStorageService>();
+    final imagePicker = ImagePicker();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     bool isPasswordVisible = false;
@@ -506,6 +550,7 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
     final formFieldFontSize = isDesktop ? 16.0 : (isTablet ? 15.0 : 14.0);
     final labelFontSize = isDesktop ? 15.0 : (isTablet ? 14.0 : 13.0);
     final hintFontSize = isDesktop ? 15.0 : (isTablet ? 14.0 : 13.0);
+    final errorFontSize = isDesktop ? 11.0 : (isTablet ? 10.0 : 9.0);
 
     Get.dialog(
       Dialog(
@@ -679,8 +724,10 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
                                             fontSize: hintFontSize - 1,
                                           ),
                                           errorStyle: TextStyle(
-                                            fontSize: hintFontSize - 1,
+                                            fontSize: errorFontSize,
+                                            height: 0.8,
                                           ),
+                                          errorMaxLines: 3,
                                           suffixIcon: IconButton(
                                             icon: Icon(
                                               isPasswordVisible
@@ -707,29 +754,58 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
 
                       // Show owner info in edit mode
                       if (isEdit)
-                        Container(
-                          padding: EdgeInsets.all(isDesktop ? 16 : 12),
-                          decoration: BoxDecoration(
-                            color: colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'المالك:',
-                                style: isDesktop
-                                    ? theme.textTheme.displaySmall?.copyWith(
-                                        fontSize: 20,
-                                        color: colorScheme.onPrimaryContainer
-                                            .withOpacity(0.8),
-                                      )
-                                    : theme.textTheme.labelMedium?.copyWith(
-                                        fontSize: isDesktop ? 14 : 13,
-                                      ),
+                        FutureBuilder<String?>(
+                          future: selectedOwnerEmail != null
+                              ? Future.value(selectedOwnerEmail)
+                              : (selectedOwnerId != null
+                                    ? adminService.getAllOwners().then((
+                                        owners,
+                                      ) {
+                                        final owner = owners.firstWhere(
+                                          (o) =>
+                                              (o['id'] ?? o['uid']) ==
+                                              selectedOwnerId,
+                                          orElse: () => {},
+                                        );
+                                        if (owner.isEmpty) return null;
+                                        return owner['email'] as String?;
+                                      })
+                                    : Future.value(null)),
+                          builder: (context, snapshot) {
+                            final displayEmail =
+                                snapshot.data ??
+                                selectedOwnerEmail ??
+                                'غير محدد';
+                            return Container(
+                              padding: EdgeInsets.all(isDesktop ? 16 : 12),
+                              decoration: BoxDecoration(
+                                color: colorScheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(8),
                               ),
-                            ],
-                          ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'البريد الإلكتروني للمالك:',
+                                    style: isDesktop
+                                        ? theme.textTheme.labelMedium?.copyWith(
+                                            fontSize: labelFontSize,
+                                          )
+                                        : theme.textTheme.labelMedium?.copyWith(
+                                            fontSize: isDesktop ? 14 : 13,
+                                          ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    displayEmail,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      fontSize: formFieldFontSize,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
                         ),
                       if (isEdit) SizedBox(height: dialogSpacing),
 
@@ -743,10 +819,10 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
                         decoration: InputDecoration(
                           label: Text(
                             'اسم المطعم *',
-                            style: TextStyle(fontSize: 20),
+                            style: TextStyle(fontSize: labelFontSize),
                           ),
                           hintText: 'أدخل اسم المطعم',
-                          hintStyle: TextStyle(fontSize: 20),
+                          hintStyle: TextStyle(fontSize: labelFontSize),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -766,10 +842,10 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
                         decoration: InputDecoration(
                           label: Text(
                             'رقم الهاتف *',
-                            style: TextStyle(fontSize: 20),
+                            style: TextStyle(fontSize: labelFontSize),
                           ),
                           hintText: 'أدخل رقم الهاتف',
-                          hintStyle: TextStyle(fontSize: 20),
+                          hintStyle: TextStyle(fontSize: labelFontSize),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -864,7 +940,7 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
                               decoration: InputDecoration(
                                 label: Text(
                                   'المدينة *',
-                                  style: TextStyle(fontSize: 20),
+                                  style: TextStyle(fontSize: labelFontSize),
                                 ),
                                 hintText: 'أختر المدينة',
                                 hintStyle: TextStyle(fontSize: 20),
@@ -956,6 +1032,84 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
                         ),
                         maxLines: 3,
                       ),
+                      SizedBox(height: dialogSpacing),
+
+                      // Logo Image Picker
+                      Row(
+                        children: [
+                          if (selectedLogoBytes != null ||
+                              (logoUrl != null && logoUrl!.isNotEmpty))
+                            Container(
+                              width: 80,
+                              height: 80,
+                              margin: EdgeInsets.only(left: 8),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: colorScheme.outline.withOpacity(0.2),
+                                ),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: selectedLogoBytes != null
+                                    ? Image.memory(
+                                        selectedLogoBytes!,
+                                        fit: BoxFit.cover,
+                                      )
+                                    : logoUrl != null && logoUrl!.isNotEmpty
+                                    ? CachedNetworkImage(
+                                        imageUrl: logoUrl!,
+                                        fit: BoxFit.cover,
+                                      )
+                                    : SizedBox.shrink(),
+                              ),
+                            ),
+                          TextButton.icon(
+                            onPressed: () async {
+                              try {
+                                final picked = await imagePicker.pickImage(
+                                  source: ImageSource.gallery,
+                                  imageQuality: 85,
+                                );
+                                if (picked != null) {
+                                  // Read image bytes for web compatibility
+                                  final bytes = await picked.readAsBytes();
+                                  setState(() {
+                                    selectedLogo = picked;
+                                    selectedLogoBytes = bytes;
+                                    logoUrl = null;
+                                  });
+                                }
+                              } catch (e) {
+                                Get.snackbar(
+                                  'خطأ',
+                                  'فشل اختيار الصورة: $e',
+                                  maxWidth: Get.width > 1200
+                                      ? 400.0
+                                      : (Get.width > 768 ? 350.0 : null),
+                                  margin: Get.width > 768
+                                      ? EdgeInsets.symmetric(
+                                          horizontal: Get.width > 1200
+                                              ? (Get.width - 400.0) / 2
+                                              : (Get.width - 350.0) / 2,
+                                          vertical: 16,
+                                        )
+                                      : EdgeInsets.all(16),
+                                  snackStyle: SnackStyle.FLOATING,
+                                  borderRadius: 12,
+                                );
+                              }
+                            },
+                            icon: Icon(Icons.image),
+                            label: Text(
+                              'اختر شعار المطعم',
+                              style: TextStyle(
+                                fontSize: isDesktop ? 16 : (isTablet ? 15 : 14),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                       SizedBox(height: dialogSpacing * 1.5),
 
                       // Buttons
@@ -1029,34 +1183,173 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
                                             selectedOwnerEmail!;
 
                                         if (finalOwnerId.isEmpty) {
-                                          // New owner - need password to create Firebase Auth account
-                                          // Validate form first
-                                          if (!formKey.currentState!
-                                              .validate()) {
-                                            controller.isLoading.value = false;
-                                            return;
-                                          }
-
-                                          final password =
-                                              ownerPasswordController.text
-                                                  .trim();
-
-                                          // New owner - create user with email and password
+                                          // Try to find existing user by email first (without creating Auth account)
                                           try {
-                                            final user = await adminService
-                                                .createOrGetUserByEmail(
-                                                  finalOwnerEmail,
-                                                  password,
+                                            final existingUser = await adminService
+                                                .getUserByEmailOnly(finalOwnerEmail);
+                                            
+                                            if (existingUser != null) {
+                                              // User exists in users table, use their ID
+                                              finalOwnerId = existingUser['id'] as String? ?? '';
+                                              finalOwnerEmail = existingUser['email'] as String? ?? finalOwnerEmail;
+                                              print(
+                                                '[AdminRestaurantManagement] Found existing user: $finalOwnerId',
+                                              );
+                                            } else {
+                                              // User doesn't exist - check if password is provided
+                                              final password = ownerPasswordController.text.trim();
+                                              
+                                              if (password.isEmpty) {
+                                                // No password provided - allow creating restaurant with email only
+                                                // owner_id will be null/empty, restaurant will be linked by email
+                                                print(
+                                                  '[AdminRestaurantManagement] No password provided, creating restaurant with email only: $finalOwnerEmail',
                                                 );
-                                            finalOwnerId =
-                                                user['id'] ?? user['uid'];
-                                            finalOwnerEmail =
-                                                user['email'] ??
-                                                finalOwnerEmail;
+                                                // finalOwnerId will remain empty, which is OK
+                                                // The restaurant will be created with owner_email only
+                                              } else {
+                                                // Password provided - try to create/get user
+                                                // Validate form first
+                                                if (!formKey.currentState!.validate()) {
+                                                  controller.isLoading.value = false;
+                                                  return;
+                                                }
+
+                                                try {
+                                                  final user = await adminService
+                                                      .createOrGetUserByEmail(
+                                                        finalOwnerEmail,
+                                                        password,
+                                                      );
+                                                  finalOwnerId =
+                                                      user['id'] ?? user['uid'];
+                                                  finalOwnerEmail =
+                                                      user['email'] ??
+                                                      finalOwnerEmail;
+                                                } catch (e) {
+                                                  final errorMsg = e.toString();
+                                                  
+                                                  // Special handling for rate limit - allow creating restaurant with email only
+                                                  if (errorMsg.contains('RATE_LIMIT_HIT')) {
+                                                    print(
+                                                      '[AdminRestaurantManagement] Rate limit hit. Creating restaurant with email only. User can sign up later.',
+                                                    );
+                                                    Get.snackbar(
+                                                      'تنبيه',
+                                                      'تم تجاوز حد إنشاء الحسابات في Supabase.\n\n'
+                                                      'سيتم إنشاء المطعم بربطه بالبريد الإلكتروني فقط.\n'
+                                                      'يمكن لصاحب المطعم إنشاء حساب لاحقاً من التطبيق.',
+                                                      maxWidth: Get.width > 1200
+                                                          ? 400.0
+                                                          : (Get.width > 768
+                                                                ? 350.0
+                                                                : null),
+                                                      margin: Get.width > 768
+                                                          ? EdgeInsets.symmetric(
+                                                              horizontal:
+                                                                  Get.width > 1200
+                                                                      ? (Get.width -
+                                                                                400.0) /
+                                                                            2
+                                                                      : (Get.width -
+                                                                                350.0) /
+                                                                            2,
+                                                              vertical: 16,
+                                                            )
+                                                          : EdgeInsets.all(16),
+                                                      snackStyle: SnackStyle.FLOATING,
+                                                      borderRadius: 12,
+                                                      duration: Duration(seconds: 6),
+                                                      backgroundColor: Colors.orange.shade100,
+                                                      colorText: Colors.orange.shade900,
+                                                    );
+                                                    // Continue - create restaurant with email only
+                                                    // finalOwnerId will remain empty
+                                                  } else {
+                                                    // For other errors, do NOT create the restaurant
+                                                    controller.isLoading.value = false;
+                                                    
+                                                    // Show error message
+                                                    Get.snackbar(
+                                                      'خطأ',
+                                                      'فشل في إنشاء حساب المالك.\n\n'
+                                                      '${errorMsg.contains('Exception:') ? errorMsg.split('Exception:')[1].trim() : errorMsg}\n\n'
+                                                      'لم يتم إنشاء المطعم. يرجى إصلاح المشكلة والمحاولة مرة أخرى.',
+                                                      maxWidth: Get.width > 1200
+                                                          ? 400.0
+                                                          : (Get.width > 768
+                                                                ? 350.0
+                                                                : null),
+                                                      margin: Get.width > 768
+                                                          ? EdgeInsets.symmetric(
+                                                              horizontal:
+                                                                  Get.width > 1200
+                                                                      ? (Get.width -
+                                                                                400.0) /
+                                                                            2
+                                                                      : (Get.width -
+                                                                                350.0) /
+                                                                            2,
+                                                              vertical: 16,
+                                                            )
+                                                          : EdgeInsets.all(16),
+                                                      snackStyle: SnackStyle.FLOATING,
+                                                      borderRadius: 12,
+                                                      duration: Duration(seconds: 6),
+                                                      backgroundColor: Colors.red.shade100,
+                                                      colorText: Colors.red.shade900,
+                                                    );
+                                                    
+                                                    // Stop restaurant creation
+                                                    return;
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          } catch (e) {
+                                            print(
+                                              '[AdminRestaurantManagement] Error checking existing user: $e',
+                                            );
+                                            // Continue - try to create restaurant with email only
+                                          }
+                                        }
+
+                                        // Upload logo if selected
+                                        String? finalLogoUrl = logoUrl;
+                                        if (selectedLogo != null &&
+                                            selectedLogoBytes != null) {
+                                          try {
+                                            // For web, use bytes; for mobile, use file path
+                                            if (kIsWeb) {
+                                              // Web: upload bytes directly
+                                              finalLogoUrl = await storageService
+                                                  .uploadImageBytes(
+                                                    bytes: selectedLogoBytes!,
+                                                    pathPrefix:
+                                                        'restaurants/$finalOwnerId/logos',
+                                                  );
+                                            } else {
+                                              // Mobile: use file path
+                                              final logoFile = File(
+                                                selectedLogo!.path,
+                                              );
+                                              if (!await logoFile.exists()) {
+                                                throw Exception(
+                                                  'الملف المحدد غير موجود',
+                                                );
+                                              }
+
+                                              finalLogoUrl = await storageService
+                                                  .uploadImage(
+                                                    file: logoFile,
+                                                    pathPrefix:
+                                                        'restaurants/$finalOwnerId/logos',
+                                                  );
+                                            }
                                           } catch (e) {
                                             Get.snackbar(
                                               'خطأ',
-                                              'فشل في إنشاء حساب المالك: $e',
+                                              'فشل رفع الشعار: ${e.toString().replaceAll('Exception: ', '')}',
                                               maxWidth: Get.width > 1200
                                                   ? 400.0
                                                   : (Get.width > 768
@@ -1077,6 +1370,7 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
                                                   : EdgeInsets.all(16),
                                               snackStyle: SnackStyle.FLOATING,
                                               borderRadius: 12,
+                                              duration: Duration(seconds: 4),
                                             );
                                             controller.isLoading.value = false;
                                             return;
@@ -1093,10 +1387,12 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
                                               city: selectedCity!,
                                               description:
                                                   descriptionController.text,
+                                              logoPath: finalLogoUrl,
                                               status: selectedStatus,
                                             );
 
                                         if (success) {
+                                          controller.loadRestaurants();
                                           Get.back();
                                           Get.snackbar(
                                             'نجح',
@@ -1147,6 +1443,71 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
                                         }
                                       } else {
                                         // Edit mode
+                                        // Upload logo if selected
+                                        String? finalLogoUrl = logoUrl;
+                                        if (selectedLogo != null &&
+                                            selectedLogoBytes != null) {
+                                          try {
+                                            final ownerId =
+                                                restaurant['owner_id'] ?? '';
+                                            // For web, use bytes; for mobile, use file path
+                                            if (kIsWeb) {
+                                              // Web: upload bytes directly
+                                              finalLogoUrl = await storageService
+                                                  .uploadImageBytes(
+                                                    bytes: selectedLogoBytes!,
+                                                    pathPrefix:
+                                                        'restaurants/$ownerId/logos',
+                                                  );
+                                            } else {
+                                              // Mobile: use file path
+                                              final logoFile = File(
+                                                selectedLogo!.path,
+                                              );
+                                              if (!await logoFile.exists()) {
+                                                throw Exception(
+                                                  'الملف المحدد غير موجود',
+                                                );
+                                              }
+
+                                              finalLogoUrl = await storageService
+                                                  .uploadImage(
+                                                    file: logoFile,
+                                                    pathPrefix:
+                                                        'restaurants/$ownerId/logos',
+                                                  );
+                                            }
+                                          } catch (e) {
+                                            Get.snackbar(
+                                              'خطأ',
+                                              'فشل رفع الشعار: ${e.toString().replaceAll('Exception: ', '')}',
+                                              maxWidth: Get.width > 1200
+                                                  ? 400.0
+                                                  : (Get.width > 768
+                                                        ? 350.0
+                                                        : null),
+                                              margin: Get.width > 768
+                                                  ? EdgeInsets.symmetric(
+                                                      horizontal:
+                                                          Get.width > 1200
+                                                          ? (Get.width -
+                                                                    400.0) /
+                                                                2
+                                                          : (Get.width -
+                                                                    350.0) /
+                                                                2,
+                                                      vertical: 16,
+                                                    )
+                                                  : EdgeInsets.all(16),
+                                              snackStyle: SnackStyle.FLOATING,
+                                              borderRadius: 12,
+                                              duration: Duration(seconds: 4),
+                                            );
+                                            controller.isLoading.value = false;
+                                            return;
+                                          }
+                                        }
+
                                         final success = await controller
                                             .updateRestaurant(
                                               restaurantId: restaurant['id'],
@@ -1156,6 +1517,7 @@ class AdminRestaurantManagementScreen extends StatelessWidget {
                                               city: selectedCity!,
                                               description:
                                                   descriptionController.text,
+                                              logoPath: finalLogoUrl,
                                               status: selectedStatus,
                                             );
 

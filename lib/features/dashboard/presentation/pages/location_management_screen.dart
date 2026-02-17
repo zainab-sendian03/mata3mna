@@ -159,6 +159,10 @@ class LocationManagementScreen extends StatelessWidget {
                   icon: Icon(Icons.refresh, color: colorScheme.onSurface),
                   onPressed: () => controller.refresh(),
                 ),
+                IconButton(
+                  icon: Icon(Icons.play_arrow, color: colorScheme.primary),
+                  onPressed: () => _showInitializeDialog(context, controller),
+                ),
               ],
             ),
       body: hideAppBar
@@ -199,6 +203,14 @@ class LocationManagementScreen extends StatelessWidget {
                         icon: Icon(Icons.refresh, color: colorScheme.onSurface),
                         onPressed: () => controller.refresh(),
                       ),
+                      IconButton(
+                        icon: Icon(
+                          Icons.play_arrow,
+                          color: colorScheme.primary,
+                        ),
+                        onPressed: () =>
+                            _showInitializeDialog(context, controller),
+                      ),
                     ],
                   ),
                 ),
@@ -206,6 +218,65 @@ class LocationManagementScreen extends StatelessWidget {
               ],
             )
           : bodyContent,
+    );
+  }
+
+  void _showInitializeDialog(
+    BuildContext context,
+    LocationManagementController controller,
+  ) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth > 1200;
+    final isTablet = screenWidth > 768 && screenWidth <= 1200;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          'تهيئة جميع المناطق',
+          style: TextStyle(
+            fontSize: isDesktop ? 20 : (isTablet ? 18 : 16),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Text(
+          'سيتم تهيئة جميع المحافظات والمدن الافتراضية. إذا كانت موجودة بالفعل، سيتم تجاهلها.\n\nهل تريد المتابعة؟',
+          style: TextStyle(fontSize: isDesktop ? 16 : (isTablet ? 15 : 14)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(
+              'إلغاء',
+              style: TextStyle(fontSize: isDesktop ? 16 : (isTablet ? 15 : 14)),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              final success = await controller.initializeAllLocations();
+              if (success) {
+                Get.snackbar(
+                  'نجح',
+                  'تم تهيئة جميع المحافظات والمدن بنجاح',
+                  snackPosition: SnackPosition.BOTTOM,
+                  duration: const Duration(seconds: 3),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: colorScheme.primary,
+              foregroundColor: colorScheme.onPrimary,
+            ),
+            child: Text(
+              'تهيئة',
+              style: TextStyle(fontSize: isDesktop ? 16 : (isTablet ? 15 : 14)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -40,16 +40,23 @@ class _DashboardScreenState extends State<DashboardScreen>
   // Animation controllers for expandable sections
   late AnimationController _categoryDistributionController;
   late AnimationController _popularItemsController;
-
+  late AnimationController _recentItemsController;
   // Expanded states
   bool _categoryDistributionExpanded = true;
-  bool _popularItemsExpanded = true;
-
+  //bool _popularItemsExpanded = true;
+  bool _recentItemsExpanded = true;
   bool get _isWeb => kIsWeb;
 
   @override
   void initState() {
     super.initState();
+    // Refresh dashboard data when landing on this screen (e.g. after creating a restaurant)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        final c = Get.find<DashboardController>();
+        c.loadDashboardData();
+      } catch (_) {}
+    });
     // Initialize animation controllers
     _categoryDistributionController = AnimationController(
       vsync: this,
@@ -59,16 +66,21 @@ class _DashboardScreenState extends State<DashboardScreen>
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-
+    _recentItemsController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
     // Start with expanded state
     _categoryDistributionController.forward();
     _popularItemsController.forward();
+    _recentItemsController.forward();
   }
 
   @override
   void dispose() {
     _categoryDistributionController.dispose();
     _popularItemsController.dispose();
+    _recentItemsController.dispose();
     super.dispose();
   }
 
@@ -365,23 +377,24 @@ class _DashboardScreenState extends State<DashboardScreen>
                   isDesktop,
                   screenWidth,
                 ),
-                // _buildSidebarItem(
-                //   context,
-                //   Icons.category,
-                //   'إدارة الفئات',
-                //   () {
-                //     setState(() {
-                //       _selectedPage = DashboardPage.categories;
-                //     });
-                //     if (!showSidebar) {
-                //       Navigator.of(context).pop(); // Close drawer on mobile
-                //     }
-                //   },
-                //   _selectedPage == DashboardPage.categories,
-                //   theme,
-                //   colorScheme,
-                //   isDesktop,
-                // ),
+                _buildSidebarItem(
+                  context,
+                  Icons.category,
+                  'إدارة الفئات',
+                  () {
+                    setState(() {
+                      _selectedPage = DashboardPage.categories;
+                    });
+                    if (!showSidebar) {
+                      Navigator.of(context).pop(); // Close drawer on mobile
+                    }
+                  },
+                  _selectedPage == DashboardPage.categories,
+                  theme,
+                  colorScheme,
+                  isDesktop,
+                  screenWidth,
+                ),
                 _buildSidebarItem(
                   context,
                   Icons.location_on,
@@ -879,24 +892,48 @@ class _DashboardScreenState extends State<DashboardScreen>
       childAspectRatio: childAspectRatio,
       children: [
         StatCard(
+          onTap: () {
+            try {
+              Get.toNamed(AppPages.adminRestaurantManagement);
+            } catch (e) {
+              print('Navigation error: $e');
+            }
+          },
           title: 'إجمالي المطاعم',
           value: controller.totalRestaurants.value.toString(),
           icon: Icons.restaurant,
           color: colorScheme.primary,
         ),
         StatCard(
+          onTap: () {
+            try {
+              Get.toNamed(AppPages.adminItemManagement);
+            } catch (e) {
+              print('Navigation error: $e');
+            }
+          },
           title: 'إجمالي العناصر',
           value: controller.totalMenuItems.value.toString(),
           icon: Icons.restaurant_menu,
           color: colorScheme.secondary,
         ),
         StatCard(
+          onTap: () {
+            try {
+              Get.toNamed(AppPages.adminCategoryManagement);
+            } catch (e) {
+              print('Navigation error: $e');
+            }
+          },
           title: 'إجمالي الفئات',
           value: controller.totalCategories.value.toString(),
           icon: Icons.category,
           color: colorScheme.tertiary,
         ),
         StatCard(
+          onTap: () {
+            //Get.toNamed(AppPages.locationManagement);
+          },
           title: 'إجمالي المستخدمين',
           value: controller.totalUsers.value.toString(),
           icon: Icons.people,
@@ -928,6 +965,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           flex: isDesktop ? 2 : 1,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               // Category Distribution
               if (controller.itemsByCategory.isNotEmpty) ...[
@@ -972,6 +1010,12 @@ class _DashboardScreenState extends State<DashboardScreen>
                         ),
                         child: CategoryDistributionChart(
                           distribution: controller.itemsByCategory,
+                          onCategoryTap: (category) {
+                            // Navigate to items page with category filter
+                            Get.toNamed(AppPages.adminItemManagement, arguments: {
+                              'category': category,
+                            });
+                          },
                         ),
                       ),
                     ],
@@ -980,53 +1024,53 @@ class _DashboardScreenState extends State<DashboardScreen>
                 SizedBox(height: 32),
               ],
 
-              // Popular Items
-              if (controller.popularItems.isNotEmpty) ...[
-                _buildSectionHeader(
-                  'العناصر الشائعة',
-                  Icons.trending_up,
-                  theme,
-                  colorScheme,
-                  onTap: () {
-                    setState(() {
-                      _popularItemsExpanded = !_popularItemsExpanded;
-                      if (_popularItemsExpanded) {
-                        _popularItemsController.forward();
-                      } else {
-                        _popularItemsController.reverse();
-                      }
-                    });
-                  },
-                  isExpanded: _popularItemsExpanded,
-                ),
-                SizeTransition(
-                  sizeFactor: _popularItemsController,
-                  child: Column(
-                    children: [
-                      SizedBox(height: 16),
-                      Container(
-                        padding: EdgeInsets.all(isDesktop ? 24 : 20),
-                        decoration: BoxDecoration(
-                          color: colorScheme.surface,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: colorScheme.outline.withOpacity(0.2),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.03),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: PopularItemsList(items: controller.popularItems),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(height: 32),
-              ],
+              // // Popular Items
+              // if (controller.popularItems.isNotEmpty) ...[
+              //   _buildSectionHeader(
+              //     'العناصر الشائعة',
+              //     Icons.trending_up,
+              //     theme,
+              //     colorScheme,
+              //     onTap: () {
+              //       setState(() {
+              //         _popularItemsExpanded = !_popularItemsExpanded;
+              //         if (_popularItemsExpanded) {
+              //           _popularItemsController.forward();
+              //         } else {
+              //           _popularItemsController.reverse();
+              //         }
+              //       });
+              //     },
+              //     isExpanded: _popularItemsExpanded,
+              //   ),
+              //   SizeTransition(
+              //     sizeFactor: _popularItemsController,
+              //     child: Column(
+              //       children: [
+              //         SizedBox(height: 16),
+              //         Container(
+              //           padding: EdgeInsets.all(isDesktop ? 24 : 20),
+              //           decoration: BoxDecoration(
+              //             color: colorScheme.surface,
+              //             borderRadius: BorderRadius.circular(16),
+              //             border: Border.all(
+              //               color: colorScheme.outline.withOpacity(0.2),
+              //             ),
+              //             boxShadow: [
+              //               BoxShadow(
+              //                 color: Colors.black.withOpacity(0.03),
+              //                 blurRadius: 8,
+              //                 offset: const Offset(0, 2),
+              //               ),
+              //             ],
+              //           ),
+              //           child: PopularItemsList(items: controller.popularItems),
+              //         ),
+              //       ],
+              //     ),
+              //   ),
+              //   SizedBox(height: 32),
+              // ],
 
               // Recent Items
               if (controller.recentItems.isNotEmpty) ...[
@@ -1035,25 +1079,39 @@ class _DashboardScreenState extends State<DashboardScreen>
                   Icons.access_time,
                   theme,
                   colorScheme,
+                  onTap: () {
+                    setState(() {
+                      _recentItemsExpanded = !_recentItemsExpanded;
+                      if (_recentItemsExpanded) {
+                        _recentItemsController.forward();
+                      } else {
+                        _recentItemsController.reverse();
+                      }
+                    });
+                  },
+                  isExpanded: _recentItemsExpanded,
                 ),
                 SizedBox(height: 16),
-                Container(
-                  padding: EdgeInsets.all(isDesktop ? 24 : 20),
-                  decoration: BoxDecoration(
-                    color: colorScheme.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: colorScheme.outline.withOpacity(0.2),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.03),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
+                SizeTransition(
+                  sizeFactor: _recentItemsController,
+                  child: Container(
+                    padding: EdgeInsets.all(isDesktop ? 24 : 20),
+                    decoration: BoxDecoration(
+                      color: colorScheme.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: colorScheme.outline.withOpacity(0.2),
                       ),
-                    ],
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.03),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: PopularItemsList(items: controller.recentItems),
                   ),
-                  child: PopularItemsList(items: controller.recentItems),
                 ),
               ],
             ],
@@ -1156,46 +1214,46 @@ class _DashboardScreenState extends State<DashboardScreen>
           SizedBox(height: 24),
         ],
 
-        // Popular Items
-        if (controller.popularItems.isNotEmpty) ...[
-          _buildSectionHeader(
-            'العناصر الشائعة',
-            Icons.trending_up,
-            theme,
-            colorScheme,
-            onTap: () {
-              setState(() {
-                _popularItemsExpanded = !_popularItemsExpanded;
-                if (_popularItemsExpanded) {
-                  _popularItemsController.forward();
-                } else {
-                  _popularItemsController.reverse();
-                }
-              });
-            },
-            isExpanded: _popularItemsExpanded,
-          ),
-          SizeTransition(
-            sizeFactor: _popularItemsController,
-            child: Column(
-              children: [
-                SizedBox(height: 12),
-                Container(
-                  padding: EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: colorScheme.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: colorScheme.outline.withOpacity(0.2),
-                    ),
-                  ),
-                  child: PopularItemsList(items: controller.popularItems),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(height: 24),
-        ],
+        // // Popular Items
+        // if (controller.popularItems.isNotEmpty) ...[
+        //   _buildSectionHeader(
+        //     'العناصر الشائعة',
+        //     Icons.trending_up,
+        //     theme,
+        //     colorScheme,
+        //     onTap: () {
+        //       setState(() {
+        //         _popularItemsExpanded = !_popularItemsExpanded;
+        //         if (_popularItemsExpanded) {
+        //           _popularItemsController.forward();
+        //         } else {
+        //           _popularItemsController.reverse();
+        //         }
+        //       });
+        //     },
+        //     isExpanded: _popularItemsExpanded,
+        //   ),
+        //   SizeTransition(
+        //     sizeFactor: _popularItemsController,
+        //     child: Column(
+        //       children: [
+        //         SizedBox(height: 12),
+        //         Container(
+        //           padding: EdgeInsets.all(16),
+        //           decoration: BoxDecoration(
+        //             color: colorScheme.surface,
+        //             borderRadius: BorderRadius.circular(16),
+        //             border: Border.all(
+        //               color: colorScheme.outline.withOpacity(0.2),
+        //             ),
+        //           ),
+        //           child: PopularItemsList(items: controller.popularItems),
+        //         ),
+        //       ],
+        //     ),
+        //   ),
+        //   SizedBox(height: 24),
+        // ],
 
         // Recent Items
         if (controller.recentItems.isNotEmpty) ...[
@@ -1206,14 +1264,17 @@ class _DashboardScreenState extends State<DashboardScreen>
             colorScheme,
           ),
           SizedBox(height: 12),
-          Container(
-            padding: EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: colorScheme.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+          SizeTransition(
+            sizeFactor: _recentItemsController,
+            child: Container(
+              padding: EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+              ),
+              child: PopularItemsList(items: controller.recentItems),
             ),
-            child: PopularItemsList(items: controller.recentItems),
           ),
           SizedBox(height: 24),
         ],

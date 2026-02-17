@@ -8,11 +8,13 @@ import 'package:sizer/sizer.dart';
 class CartDetailPage extends StatelessWidget {
   final String ownerId;
   final String restaurantName;
+  final String restaurantPhone;
 
   const CartDetailPage({
     super.key,
     required this.ownerId,
     required this.restaurantName,
+    this.restaurantPhone = '',
   });
 
   @override
@@ -23,9 +25,22 @@ class CartDetailPage extends StatelessWidget {
     final notesController = TextEditingController();
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          restaurantName,
-          style: theme.textTheme.titleLarge?.copyWith(color: Colors.white),
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              restaurantName,
+              style: theme.textTheme.titleLarge?.copyWith(color: Colors.white),
+            ),
+            if (restaurantPhone.isNotEmpty)
+              Text(
+                restaurantPhone,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.white70,
+                  fontSize: 12,
+                ),
+              ),
+          ],
         ),
         centerTitle: true,
         backgroundColor: colorScheme.primary,

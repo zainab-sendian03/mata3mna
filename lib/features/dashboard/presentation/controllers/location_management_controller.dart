@@ -4,11 +4,11 @@ import 'package:mata3mna/features/dashboard/data/services/location_firestore_ser
 
 /// Controller for managing locations (governorates and cities) in the admin dashboard
 class LocationManagementController extends GetxController {
-  final LocationFirestoreService _locationService;
+  final LocationSupabaseService _locationService;
   final CacheHelper _cacheHelper;
 
   LocationManagementController({
-    required LocationFirestoreService locationService,
+    required LocationSupabaseService locationService,
     required CacheHelper cacheHelper,
   }) : _locationService = locationService,
        _cacheHelper = cacheHelper;
@@ -204,5 +204,60 @@ class LocationManagementController extends GetxController {
   /// Refresh locations
   Future<void> refresh() async {
     await loadLocations();
+  }
+
+  /// Initialize all default governorates and cities
+  Future<bool> initializeAllLocations() async {
+    try {
+      isLoading.value = true;
+      errorMessage.value = '';
+
+      // Check if user is admin
+      final userRole = _cacheHelper.getData(key: 'userRole') as String?;
+      if (userRole != 'admin') {
+        errorMessage.value =
+            'غير مصرح لك بالوصول. يجب أن تكون مسؤولاً لتهيئة المناطق.';
+        Get.snackbar(
+          'خطأ',
+          'غير مصرح لك بالوصول. يجب أن تكون مسؤولاً لتهيئة المناطق.',
+        );
+        return false;
+      }
+
+      await _locationService.initializeDefaultLocations();
+      await loadLocations(); // Reload to refresh the list
+      Get.snackbar('نجح', 'تم تهيئة جميع المحافظات والمدن بنجاح');
+      return true;
+    } catch (e) {
+      final errorMsg = e.toString();
+      String displayMessage;
+
+      // Check if it's an RLS error
+      if (errorMsg.contains('42501') ||
+          errorMsg.contains('row-level security') ||
+          errorMsg.contains('صلاحيات قاعدة البيانات')) {
+        displayMessage =
+            'خطأ في صلاحيات قاعدة البيانات (RLS).\n\n'
+            'يجب تكوين Row-Level Security في Supabase:\n\n'
+            '1. افتح Supabase Dashboard\n'
+            '2. اذهب إلى Table Editor > governorates > Policies\n'
+            '3. أضف سياسة INSERT للمستخدمين ذوي role = \'admin\'\n'
+            '4. كرر نفس الخطوات لجدول cities\n\n'
+            'أو يمكنك تعطيل RLS مؤقتاً للجداول governorates و cities';
+      } else {
+        displayMessage = 'حدث خطأ أثناء تهيئة المناطق: ${e.toString()}';
+      }
+
+      errorMessage.value = displayMessage;
+      Get.snackbar(
+        'خطأ',
+        displayMessage,
+        duration: const Duration(seconds: 8),
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      return false;
+    } finally {
+      isLoading.value = false;
+    }
   }
 }

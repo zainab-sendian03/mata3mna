@@ -39,19 +39,30 @@ class AdminCategoryController extends GetxController {
   /// Load item counts for each category
   Future<void> _loadCategoryItemCounts() async {
     try {
-      final counts = <String, int>{};
+      // Use stream to get real-time updates
+      // getAllMenuItems() already processes items and adds 'category' field
       _adminService.getAllMenuItems().listen((items) {
-        counts.clear();
+        final counts = <String, int>{};
+        
+        // Process items - getAllMenuItems() should already have 'category' populated
         for (final item in items) {
-          final category = (item['category'] ?? '').toString();
-          if (category.isNotEmpty) {
+          // getAllMenuItems() processes items using asyncMap and adds 'category' from 'category_id'
+          // So we should use 'category' directly
+          final category = (item['category'] ?? 'غير مصنف').toString();
+          
+          if (category.isNotEmpty && category != 'null') {
             counts[category] = (counts[category] ?? 0) + 1;
+          } else {
+            // Fallback: if category is not populated, count as unclassified
+            counts['غير مصنف'] = (counts['غير مصنف'] ?? 0) + 1;
           }
         }
+        
         categoryItemCounts.value = counts;
+        print('[AdminCategoryController] Updated category counts: $counts');
       });
     } catch (e) {
-      print('Error loading category counts: $e');
+      print('[AdminCategoryController] Error loading category counts: $e');
     }
   }
 
@@ -88,7 +99,7 @@ class AdminCategoryController extends GetxController {
       isLoading.value = true;
       errorMessage.value = '';
 
-      _adminService.createCategory(categoryName.trim());
+      await _adminService.createCategory(categoryName.trim());
       
       // Reload categories
       await loadCategories();
@@ -117,7 +128,8 @@ class AdminCategoryController extends GetxController {
         return true; // No change needed
       }
 
-      if (categories.contains(newCategory.trim()) && oldCategory != newCategory.trim()) {
+      if (categories.contains(newCategory.trim()) &&
+          oldCategory != newCategory.trim()) {
         errorMessage.value = 'هذه الفئة موجودة بالفعل';
         return false;
       }
@@ -150,8 +162,11 @@ class AdminCategoryController extends GetxController {
 
       await _adminService.deleteCategory(category);
 
-      // Reload categories
-      loadCategories();
+      // Wait a bit for Firestore to update
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Reload categories to get updated list
+      await loadCategories();
 
       isLoading.value = false;
       return true;

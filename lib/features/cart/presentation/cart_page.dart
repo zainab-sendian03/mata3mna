@@ -13,6 +13,15 @@ class CartPage extends StatefulWidget {
 
 class _CartPageState extends State<CartPage> {
   @override
+  void initState() {
+    super.initState();
+    // Refresh restaurant names and phones when opening cart (fixes owner_id null case)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Get.find<CartController>().refreshRestaurantInfoForCarts();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final cartController = Get.find<CartController>();
     final theme = Theme.of(context);
@@ -35,28 +44,16 @@ class _CartPageState extends State<CartPage> {
             return IconButton(
               onPressed: () {
                 if (cartsInfo.isEmpty) return;
-
-                // If multiple carts, show options
-                if (cartsInfo.length > 1 && currentOwnerId != null) {
-                  _showClearCartDialog(
-                    context,
-                    cartController,
-                    theme,
-                    colorScheme,
-                    currentOwnerId,
-                    cartsInfo,
-                  );
-                } else {
-                  // Single cart or no current cart
-                  _showClearCartDialog(
-                    context,
-                    cartController,
-                    theme,
-                    colorScheme,
-                    currentOwnerId!,
-                    cartsInfo,
-                  );
-                }
+                final ownerId = currentOwnerId ?? cartsInfo.first['ownerId'] as String?;
+                if (ownerId == null) return;
+                _showClearCartDialog(
+                  context,
+                  cartController,
+                  theme,
+                  colorScheme,
+                  ownerId,
+                  cartsInfo,
+                );
               },
               icon: Icon(Icons.delete_sweep),
             );
@@ -113,6 +110,7 @@ class _CartPageState extends State<CartPage> {
         final cartInfo = cartsInfo[index];
         final ownerId = cartInfo['ownerId'] as String;
         final restaurantName = cartInfo['restaurantName'] as String;
+        final restaurantPhone = (cartInfo['restaurantPhone'] as String?) ?? '';
         final itemCount = cartInfo['itemCount'] as int;
         final totalPrice = cartInfo['totalPrice'] as double;
 
@@ -137,6 +135,7 @@ class _CartPageState extends State<CartPage> {
                   builder: (context) => CartDetailPage(
                     ownerId: ownerId,
                     restaurantName: restaurantName,
+                    restaurantPhone: restaurantPhone,
                   ),
                 ),
               );
@@ -160,7 +159,7 @@ class _CartPageState extends State<CartPage> {
                     ),
                   ),
                   SizedBox(width: 3.w),
-                  // Restaurant Name and Info
+                  // Restaurant Name, phone, and summary
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -171,6 +170,15 @@ class _CartPageState extends State<CartPage> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
+                        if (restaurantPhone.isNotEmpty) ...[
+                          SizedBox(height: 0.3.h),
+                          Text(
+                            restaurantPhone,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurface.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ],
                         SizedBox(height: 0.5.h),
                         Row(
                           children: [
@@ -204,7 +212,6 @@ class _CartPageState extends State<CartPage> {
                       ],
                     ),
                   ),
-                  // Arrow Icon
                   Icon(
                     Icons.arrow_forward_ios,
                     color: colorScheme.onSurface.withValues(alpha: 0.5),

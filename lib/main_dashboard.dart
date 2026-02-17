@@ -1,6 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:mata3mna/config/routes/app_pages.dart';
@@ -9,29 +6,15 @@ import 'package:mata3mna/config/themes/app_theme.dart';
 import 'package:mata3mna/config/themes/theme_controller.dart';
 import 'package:mata3mna/core/databases/cache/cache_helper.dart';
 import 'package:mata3mna/core/di/service_locator.dart';
-import 'package:mata3mna/firebase_options.dart';
+import 'package:mata3mna/features/auth/presentation/pages/admin_login_page.dart';
+import 'package:mata3mna/features/dashboard/presentation/pages/dashboard_screen.dart';
 import 'package:sizer/sizer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// Stub background message handler for Firebase Messaging
-/// This prevents errors when Firebase plugins expect this handler to be defined
-@pragma('vm:entry-point')
-Future<void> firebaseMessagingBackgroundHandler(dynamic message) async {
-  // Stub handler - does nothing
-  // If you add firebase_messaging package later, implement proper handling here
-}
-
-/// Standalone dashboard entry point for web
-/// This runs only the dashboard without the full app flow
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  FirebaseAuth.instance.setLanguageCode('ar');
-
-  // Initialize Supabase (if needed for dashboard)
+  // Initialize Supabase for authentication
   await Supabase.initialize(
     url: 'https://vuzfcwqmkulqttmgpwqn.supabase.co',
     anonKey:
@@ -67,21 +50,26 @@ class _DashboardAppState extends State<DashboardApp> {
   }
 
   Future<void> _checkAuthAndSetRoute() async {
-    // Check if Firebase Auth has a valid session
-    final currentUser = FirebaseAuth.instance.currentUser;
+    final supabase = Supabase.instance.client;
+    // Give Supabase time to restore session from storage
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    final currentUser = supabase.auth.currentUser;
 
     if (currentUser != null) {
-      // User is already authenticated, check if they're admin
       try {
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(currentUser.uid)
-            .get();
+        // جلب دور المستخدم من جدول users في Supabase
+        final response = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', currentUser.id)
+            .maybeSingle();
 
-        final role = userDoc.data()?['role'] as String?;
+        final role = response?['role'] as String?;
 
         if (role == 'admin') {
-          // Admin is authenticated, go to dashboard
+          // Small delay to ensure GetMaterialApp is ready
+          await Future.delayed(const Duration(milliseconds: 100));
           setState(() {
             initialRoute = AppPages.dashboard;
             _isCheckingAuth = false;
@@ -93,7 +81,7 @@ class _DashboardAppState extends State<DashboardApp> {
       }
     }
 
-    // No valid session or not admin, go to login
+    // إذا ما في session أو مش admin
     setState(() {
       initialRoute = AppPages.adminLogin;
       _isCheckingAuth = false;
@@ -104,13 +92,15 @@ class _DashboardAppState extends State<DashboardApp> {
   Widget build(BuildContext context) {
     final themeController = Get.find<ThemeController>();
 
-    // Show loading while checking auth
     if (_isCheckingAuth || initialRoute == null) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         home: Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
+
+    // Use home instead of initialRoute to avoid "Could not navigate to initial route" error
+    final isAdmin = initialRoute == AppPages.dashboard;
 
     return Obx(
       () => GetMaterialApp(
@@ -120,8 +110,12 @@ class _DashboardAppState extends State<DashboardApp> {
         themeMode: themeController.themeMode,
         locale: const Locale('ar'),
         textDirection: TextDirection.rtl,
-        initialRoute: initialRoute,
+        home: isAdmin ? const DashboardScreen() : const AdminLoginPage(),
         getPages: AppRoutes.routes,
+        unknownRoute: GetPage(
+          name: '/not-found',
+          page: () => Scaffold(body: Center(child: Text('الصفحة غير موجودة'))),
+        ),
       ),
     );
   }

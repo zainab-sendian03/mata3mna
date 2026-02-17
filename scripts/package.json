@@ -1,0 +1,17 @@
+{
+  "name": "mata3mna-deploy-scripts",
+  "version": "1.0.0",
+  "description": "Deploy dashboard to Supabase Storage",
+  "private": true,
+  "scripts": {
+    "upload-dashboard": "node upload_dashboard_to_supabase.cjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "node-fetch": "^3.3.2"
+  },
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

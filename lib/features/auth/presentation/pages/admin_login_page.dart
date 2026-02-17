@@ -218,6 +218,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                             authController.loginPasswordController.text,
                             formKey_login,
                             rememberMe: _rememberMe,
+                            isAdminLogin: true,
                           );
                         },
                         theme: theme,

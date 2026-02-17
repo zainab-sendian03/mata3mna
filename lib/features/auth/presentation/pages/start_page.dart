@@ -1,6 +1,4 @@
 import 'dart:ui';
-
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:mata3mna/config/routes/app_pages.dart';
@@ -19,7 +17,7 @@ class ChooseRolePage extends StatelessWidget {
           Positioned.fill(
             child: Stack(
               children: [
-                /// الصورة الخلفية
+                /// الخلفية
                 Container(
                   decoration: BoxDecoration(
                     image: DecorationImage(
@@ -31,13 +29,8 @@ class ChooseRolePage extends StatelessWidget {
 
                 /// الغباش
                 BackdropFilter(
-                  filter: ImageFilter.blur(
-                    sigmaX: 3, // درجة الغباش أفقياً
-                    sigmaY: 3, // درجة الغباش عمودياً
-                  ),
-                  child: Container(
-                    color: Colors.black.withOpacity(0.4), // للتعتيم الخفيف
-                  ),
+                  filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+                  child: Container(color: Colors.black.withOpacity(0.4)),
                 ),
               ],
             ),
@@ -50,7 +43,6 @@ class ChooseRolePage extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 SizedBox(height: 9.h),
-
                 Text(
                   "مرحباً بك في تطبيق مطاعمنا !",
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
@@ -58,9 +50,7 @@ class ChooseRolePage extends StatelessWidget {
                   ),
                   textAlign: TextAlign.center,
                 ),
-
                 SizedBox(height: 2.h),
-
                 Text(
                   "اختر طريقة استخدام التطبيق",
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -69,7 +59,6 @@ class ChooseRolePage extends StatelessWidget {
                   ),
                   textAlign: TextAlign.center,
                 ),
-
                 const Spacer(),
 
                 /// USER BUTTON
@@ -77,55 +66,18 @@ class ChooseRolePage extends StatelessWidget {
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () async {
-                      print('[StartPage] Customer button pressed');
                       final cacheHelper = Get.find<CacheHelper>();
                       await cacheHelper.saveData(
                         key: 'userRole',
                         value: 'customer',
                       );
-                      print('[StartPage] Saved userRole = customer');
 
-                      // Don't set isLoggedIn=true for customers - they don't need Firebase auth
-                      // await cacheHelper.saveData(
-                      //   key: 'isLoggedIn',
-                      //   value: true,
-                      // );
+                      // تنظيف بيانات تسجيل الدخول السابقة
+                      await cacheHelper.removeData(key: 'isLoggedIn');
+                      await cacheHelper.removeData(key: 'userUid');
+                      await cacheHelper.removeData(key: 'userEmail');
+                      await cacheHelper.removeData(key: 'userDisplayName');
 
-                      // Try to save to Firestore, but don't block if it fails
-                      try {
-                        final userUid =
-                            cacheHelper.getData(key: 'userUid') as String?;
-                        if (userUid != null && userUid.isNotEmpty) {
-                          print(
-                            '[StartPage] Saving to Firestore with UID: $userUid',
-                          );
-                          await FirebaseFirestore.instance
-                              .collection('users')
-                              .doc(userUid)
-                              .set({
-                                'role': 'customer',
-                                'email': cacheHelper.getData(key: 'userEmail'),
-                                'displayName': cacheHelper.getData(
-                                  key: 'userDisplayName',
-                                ),
-                                'createdAt': FieldValue.serverTimestamp(),
-                              }, SetOptions(merge: true));
-                          print('[StartPage] Successfully saved to Firestore');
-                        } else {
-                          print(
-                            '[StartPage] No userUid found, skipping Firestore save',
-                          );
-                        }
-                      } catch (e) {
-                        // Ignore Firestore errors for customers - they can still browse
-                        print(
-                          '[StartPage] Failed to save customer role to Firestore: $e',
-                        );
-                      }
-
-                      print(
-                        '[StartPage] Navigating to ${AppPages.customerView}',
-                      );
                       Get.offAllNamed(AppPages.customerView);
                     },
                     style: ElevatedButton.styleFrom(
@@ -141,7 +93,6 @@ class ChooseRolePage extends StatelessWidget {
                     ),
                   ),
                 ),
-
                 SizedBox(height: 16),
 
                 /// OWNER BUTTON
@@ -150,30 +101,12 @@ class ChooseRolePage extends StatelessWidget {
                   child: OutlinedButton(
                     onPressed: () async {
                       final cacheHelper = Get.find<CacheHelper>();
-                      final userUid =
-                          cacheHelper.getData(key: 'userUid') as String?;
-
-                      // Save role to cache
                       await cacheHelper.saveData(
                         key: 'userRole',
                         value: 'owner',
                       );
 
-                      // Save role to Firestore if user is already logged in
-                      if (userUid != null && userUid.isNotEmpty) {
-                        await FirebaseFirestore.instance
-                            .collection('users')
-                            .doc(userUid)
-                            .set({
-                              'role': 'owner',
-                              'email': cacheHelper.getData(key: 'userEmail'),
-                              'displayName': cacheHelper.getData(
-                                key: 'userDisplayName',
-                              ),
-                              'createdAt': FieldValue.serverTimestamp(),
-                            }, SetOptions(merge: true));
-                      }
-
+                      // الانتقال لصفحة تسجيل الدخول
                       Get.toNamed(AppPages.login);
                     },
                     style: OutlinedButton.styleFrom(
@@ -195,7 +128,6 @@ class ChooseRolePage extends StatelessWidget {
                     ),
                   ),
                 ),
-
                 SizedBox(height: 2.h),
               ],
             ),

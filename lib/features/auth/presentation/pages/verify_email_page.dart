@@ -45,9 +45,16 @@ class VerifyEmailScreen extends StatelessWidget {
                 style: TextStyle(fontSize: 23, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
+              const SizedBox(height: 12),
               Text(
-                "يرجى تفقد صندوق الرسائل الواردة لديك لإتمام التحقق",
-                style: TextStyle(fontSize: 18),
+                "انقر على رابط التحقق في البريد الإلكتروني لإكمال التسجيل. سيتم فتح التطبيق تلقائياً بعد التأكيد.",
+                style: TextStyle(fontSize: 16),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "إذا لم تجد الرسالة، تحقق من مجلد البريد العشوائي (Spam)",
+                style: TextStyle(fontSize: 14, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 30),
@@ -58,17 +65,6 @@ class VerifyEmailScreen extends StatelessWidget {
                 color: AppColors.primaryLight,
                 icon: null,
               ),
-
-              const SizedBox(height: 10),
-              CustomButton(
-                onPressed: onCheckVerification,
-                theme: theme,
-                label: "تم التحقق، متابعة",
-                color: AppColors.primaryLight,
-                icon: null,
-                isOutline: true,
-              ),
-
               const SizedBox(height: 20),
               TextButton(
                 onPressed: onLogout,

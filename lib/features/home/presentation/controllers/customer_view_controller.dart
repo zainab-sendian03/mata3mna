@@ -10,12 +10,12 @@ import 'package:mata3mna/features/restaurant_info/data/services/restaurant_fires
 import 'package:mata3mna/features/dashboard/data/services/location_firestore_service.dart';
 
 class CustomerViewController extends GetxController {
-  final MenuFirestoreService _menuService = Get.find<MenuFirestoreService>();
+  final MenuSupabaseService _menuService = Get.find<MenuSupabaseService>();
   final CacheHelper _cacheHelper = Get.find<CacheHelper>();
-  final RestaurantFirestoreService _restaurantService =
-      Get.find<RestaurantFirestoreService>();
-  final LocationFirestoreService _locationService =
-      Get.find<LocationFirestoreService>();
+  final RestaurantSupabaseService _restaurantService =
+      Get.find<RestaurantSupabaseService>();
+  final LocationSupabaseService _locationService =
+      Get.find<LocationSupabaseService>();
 
   // Observable state
   final RxBool isLoading = false.obs;
@@ -25,7 +25,8 @@ class CustomerViewController extends GetxController {
       <Map<String, dynamic>>[].obs;
   final RxList<Map<String, dynamic>> filteredRestaurants =
       <Map<String, dynamic>>[].obs;
-  final RxBool isLoadingRestaurants = false.obs;
+  final RxBool isLoadingRestaurants =
+      true.obs; // Start true so UI shows loading until first load
   // Map of ownerId to list of matching menu items
   final RxMap<String, List<Map<String, dynamic>>> restaurantMatchingItems =
       <String, List<Map<String, dynamic>>>{}.obs;
@@ -42,9 +43,11 @@ class CustomerViewController extends GetxController {
   final Map<String, Map<String, dynamic>> _restaurantsFromName = {};
   final Map<String, Map<String, dynamic>> _allRestaurantsMap = {};
   final Map<String, Map<String, dynamic>> _allRestaurantsCache =
-      {}; // Cache all restaurants
-  bool _restaurantsLoaded = false;
-  bool _menuItemsLoaded = false;
+      {}; // Cache by owner_id
+  final Map<String, Map<String, dynamic>> _allRestaurantsByRestaurantId =
+      {}; // Cache by restaurant id so item restaurant_id can resolve
+  bool _hasItemMatchesForCurrentQuery =
+      false; // True when current query matched at least one menu item
 
   // Filter state
   final Rxn<String> selectedGovernorate = Rxn<String>();
@@ -69,33 +72,82 @@ class CustomerViewController extends GetxController {
     super.onInit();
     _loadLocations();
     loadAllMenuItems();
-    // Pre-load restaurants into cache for faster search
-    _preloadRestaurants();
-    // Always load restaurants
     _loadFilteredRestaurants();
+    print('[CustomerViewController] Controller initialized');
+  }
+
+  @override
+  void onClose() {
+    try {
+      _menuItemsSubscription?.cancel();
+    } catch (e) {
+      print(
+        '[CustomerViewController] Error cancelling menu items subscription: $e',
+      );
+    }
+    _menuItemsSubscription = null;
+
+    try {
+      _restaurantsSubscription?.cancel();
+    } catch (e) {
+      print(
+        '[CustomerViewController] Error cancelling restaurants subscription: $e',
+      );
+    }
+    _restaurantsSubscription = null;
+
+    try {
+      _searchMenuItemsSubscription?.cancel();
+    } catch (e) {
+      print(
+        '[CustomerViewController] Error cancelling search menu items subscription: $e',
+      );
+    }
+    _searchMenuItemsSubscription = null;
+
+    _searchDebounceTimer?.cancel();
+    super.onClose();
   }
 
   /// Load governorates and cities from Firestore
   Future<void> _loadLocations() async {
     try {
+      print('[CustomerViewController] Loading locations...');
       // Load governorates
       final loadedGovernorates = await _locationService.getGovernorates();
-      
+      print(
+        '[CustomerViewController] Loaded ${loadedGovernorates.length} governorates',
+      );
+
       // If no governorates exist, initialize default locations
       if (loadedGovernorates.isEmpty) {
+        print(
+          '[CustomerViewController] No governorates found, initializing default locations...',
+        );
         await _locationService.initializeDefaultLocations();
         final reloadedGovernorates = await _locationService.getGovernorates();
         governorates.value = reloadedGovernorates;
+        print(
+          '[CustomerViewController] Initialized ${reloadedGovernorates.length} governorates',
+        );
       } else {
         governorates.value = loadedGovernorates;
       }
-      
+
       // Load cities grouped by governorate
-      final loadedCitiesMap =
-          await _locationService.getCitiesByGovernorateMap();
+      print('[CustomerViewController] Loading cities...');
+      final loadedCitiesMap = await _locationService
+          .getCitiesByGovernorateMap();
       citiesByGovernorate.value = loadedCitiesMap;
+      print(
+        '[CustomerViewController] Loaded cities for ${loadedCitiesMap.length} governorates',
+      );
+      for (final entry in loadedCitiesMap.entries) {
+        print(
+          '[CustomerViewController]   ${entry.key}: ${entry.value.length} cities',
+        );
+      }
     } catch (e) {
-      // ignore: avoid_print
       print('[CustomerViewController] Error loading locations: $e');
       // Fallback to empty lists if loading fails
       governorates.value = [];
@@ -103,51 +155,87 @@ class CustomerViewController extends GetxController {
     }
   }
 
-  @override
-  void onClose() {
-    _searchDebounceTimer?.cancel();
-    _menuItemsSubscription?.cancel();
-    _restaurantsSubscription?.cancel();
-    _searchMenuItemsSubscription?.cancel();
-    super.onClose();
-  }
-
-  // Pre-load restaurants into cache for faster search
-  void _preloadRestaurants() {
-    _restaurantsSubscription?.cancel();
-    _restaurantsSubscription = _restaurantService.getAllRestaurants().listen((
-      restaurants,
-    ) {
-      // Cache all restaurants for quick lookup
-      for (final restaurant in restaurants) {
-        final ownerId = (restaurant['ownerId'] as String? ?? '').trim();
-        if (ownerId.isNotEmpty) {
-          _allRestaurantsCache[ownerId] = restaurant;
-        }
-      }
-      // Cancel subscription after first load to avoid memory leaks
-      _restaurantsSubscription?.cancel();
-    });
-  }
-
   void loadAllMenuItems() {
     if (!hasReceivedData.value) {
       isLoading.value = true;
     }
-    _menuItemsSubscription?.cancel();
-    _menuItemsSubscription = _menuService.getAllMenuItemsStream().listen((
-      items,
-    ) {
-      allMenuItems.value = items;
-      hasReceivedData.value = true;
-      isLoading.value = false;
-    });
+
+    // Cancel previous subscription to avoid duplicates (safely)
+    try {
+      _menuItemsSubscription?.cancel();
+    } catch (e) {
+      print(
+        '[CustomerViewController] Error cancelling previous subscription: $e',
+      );
+    }
+    _menuItemsSubscription = null;
+
+    print('[CustomerViewController] Starting menu items stream...');
+    _menuItemsSubscription = _menuService.getAllMenuItemsStream().listen(
+      (items) {
+        print(
+          '[CustomerViewController] Menu items stream updated: ${items.length} items',
+        );
+
+        // Group items by ownerId for debugging
+        final itemsByOwner = <String, int>{};
+        final itemsByRestaurant = <String, int>{};
+        for (final item in items) {
+          final ownerId = (item['ownerId'] as String? ?? '').trim();
+          final restaurantName = (item['restaurantName'] as String? ?? '')
+              .trim();
+
+          if (ownerId.isNotEmpty) {
+            itemsByOwner[ownerId] = (itemsByOwner[ownerId] ?? 0) + 1;
+          }
+
+          if (restaurantName.isNotEmpty) {
+            itemsByRestaurant[restaurantName] =
+                (itemsByRestaurant[restaurantName] ?? 0) + 1;
+          }
+        }
+
+        print(
+          '[CustomerViewController] Items by restaurant: ${itemsByOwner.length} restaurants',
+        );
+        for (final entry in itemsByOwner.entries) {
+          final restaurantName =
+              items.firstWhere(
+                    (item) =>
+                        (item['ownerId'] as String? ?? '').trim() == entry.key,
+                    orElse: () => {},
+                  )['restaurantName']
+                  as String? ??
+              'Unknown';
+          print(
+            '[CustomerViewController]   $restaurantName (ownerId: ${entry.key}): ${entry.value} items',
+          );
+        }
+
+        // Update the observable list - this will trigger UI updates
+        allMenuItems.value = items;
+        hasReceivedData.value = true;
+        isLoading.value = false;
+
+        print(
+          '[CustomerViewController] Menu items list updated in UI (allMenuItems.length = ${allMenuItems.length})',
+        );
+      },
+      onError: (error) {
+        print('[CustomerViewController] Error loading menu items: $error');
+        print(
+          '[CustomerViewController] Error stack trace: ${error.stackTrace}',
+        );
+        isLoading.value = false;
+      },
+    );
   }
 
+  /// Normalize Arabic for search: variants to common form, remove diacritics, Arabic numerals to Western.
   String normalizeArabic(String text) {
     if (text.isEmpty) return text;
-
-    final Map<String, String> replacements = {
+    // Diacritics and letter variants
+    const Map<String, String> replacements = {
       'أ': 'ا',
       'إ': 'ا',
       'آ': 'ا',
@@ -163,14 +251,15 @@ class CustomerViewController extends GetxController {
       'ِ': '',
       'ّ': '',
       'ْ': '',
-      'غ': 'ج',
-      "ج": 'غ',
     };
-
-    replacements.forEach((key, value) {
-      text = text.replaceAll(key, value);
-    });
-
+    for (final e in replacements.entries) {
+      text = text.replaceAll(e.key, e.value);
+    }
+    // Arabic numerals (٠١٢٣٤٥٦٧٨٩) -> Western (0-9) so "مطعم ١" matches "مطعم 1"
+    const String arabicNumerals = '٠١٢٣٤٥٦٧٨٩';
+    for (var i = 0; i < 10; i++) {
+      text = text.replaceAll(arabicNumerals[i], i.toString());
+    }
     return text;
   }
 
@@ -257,20 +346,66 @@ class CustomerViewController extends GetxController {
 
   List<String> getAvailableCities() {
     if (selectedGovernorate.value == null) {
+      print(
+        '[CustomerViewController] getAvailableCities: No governorate selected',
+      );
       return [];
     }
-    return citiesByGovernorate[selectedGovernorate.value] ?? [];
+    final cities = citiesByGovernorate[selectedGovernorate.value] ?? [];
+    print(
+      '[CustomerViewController] getAvailableCities: Found ${cities.length} cities for ${selectedGovernorate.value}',
+    );
+    return cities;
   }
 
   Future<void> handleRefresh() async {
     isLoading.value = true;
+    isLoadingRestaurants.value = true;
 
-    // Reload menu items - the stream will update the data
+    print('[CustomerViewController] Refreshing data...');
+
+    // Cancel existing subscriptions to force fresh data (safely)
+    try {
+      _menuItemsSubscription?.cancel();
+    } catch (e) {
+      print(
+        '[CustomerViewController] Error cancelling menu items subscription: $e',
+      );
+    }
+    _menuItemsSubscription = null;
+
+    try {
+      _restaurantsSubscription?.cancel();
+    } catch (e) {
+      print(
+        '[CustomerViewController] Error cancelling restaurants subscription: $e',
+      );
+    }
+    _restaurantsSubscription = null; // Set to null to force recreation
+
+    // Clear current data to show loading state
+    allMenuItems.clear();
+    filteredRestaurants.clear();
+    _allRestaurantsCache.clear(); // Clear cache too
+    _restaurantsFromName.clear();
+    _allRestaurantsMap.clear();
+
     // Wait a bit to show the refresh indicator
     await Future.delayed(Duration(milliseconds: 300));
 
+    // Reload menu items - this will create a new stream subscription
+    loadAllMenuItems();
+
+    // Reload restaurants - this will create a new subscription since _restaurantsSubscription is null
+    // This will force a fresh server fetch
+    _loadFilteredRestaurants();
+
+    // Wait a bit more to ensure data is loaded from server
+    await Future.delayed(Duration(milliseconds: 1000));
+
     HapticFeedback.mediumImpact();
     isLoading.value = false;
+    isLoadingRestaurants.value = false;
 
     // Show success message
     Get.snackbar(
@@ -307,9 +442,8 @@ class CustomerViewController extends GetxController {
       return;
     }
 
-    // Clear previous results immediately when new search starts
-    filteredRestaurants.clear();
     restaurantMatchingItems.clear();
+    // Don't clear filteredRestaurants here – wait until we have new results so UI never shows empty
 
     // Debounce search to avoid too many requests
     _searchDebounceTimer = Timer(Duration(milliseconds: 300), () {
@@ -325,7 +459,7 @@ class CustomerViewController extends GetxController {
   /// Get unique categories for a specific restaurant
   List<String> getRestaurantCategories(String ownerId) {
     final restaurantItems = allMenuItems
-        .where((item) => (item['ownerId'] as String? ?? '').trim() == ownerId)
+        .where((item) => _getOwnerIdForMenuItem(item) == ownerId)
         .toList();
 
     final categorySet = <String>{};
@@ -340,147 +474,159 @@ class CustomerViewController extends GetxController {
   }
 
   // Load restaurants based on filters and search (always show restaurants)
-  // When searching, show restaurants with matching names OR matching food items
-  void _loadFilteredRestaurants() {
-    // Cancel previous subscriptions
-    _restaurantsSubscription?.cancel();
-    _searchMenuItemsSubscription?.cancel();
+  void _loadFilteredRestaurants() async {
+    // Cancel previous subscriptions if any (safely)
+    try {
+      _restaurantsSubscription?.cancel();
+    } catch (e) {
+      print(
+        '[CustomerViewController] Error cancelling restaurants subscription: $e',
+      );
+    }
+    _restaurantsSubscription = null;
+
+    try {
+      _searchMenuItemsSubscription?.cancel();
+    } catch (e) {
+      print(
+        '[CustomerViewController] Error cancelling search menu items subscription: $e',
+      );
+    }
+    _searchMenuItemsSubscription = null;
 
     isLoadingRestaurants.value = true;
-    final currentQuery = searchQuery.value;
+    final currentQuery = searchQuery.value.trim();
     _currentSearchQuery = currentQuery;
 
-    if (currentQuery.isEmpty) {
-      // Use cached restaurants if available, otherwise load from stream
-      if (_allRestaurantsCache.isNotEmpty) {
-        final cachedRestaurants = _allRestaurantsCache.values.toList();
-        _applyLocationFiltersToRestaurants(cachedRestaurants);
-        return;
-      }
-
-      // Load all restaurants and apply filters
-      _restaurantsSubscription = _restaurantService.getAllRestaurants().listen((
-        restaurants,
-      ) {
-        // Only apply results if this is still the current query
-        if (_currentSearchQuery.isEmpty) {
-          // Update cache
-          for (final restaurant in restaurants) {
-            final ownerId = (restaurant['ownerId'] as String? ?? '').trim();
-            if (ownerId.isNotEmpty) {
-              _allRestaurantsCache[ownerId] = restaurant;
-            }
-          }
-          _applyLocationFiltersToRestaurants(restaurants);
-        }
-      });
-      return;
-    }
-
-    // Search by both restaurant name and food name
+    // Normalize query for search (restaurant name + item name/description/category)
     final normalizedQuery = normalizeArabic(currentQuery.toLowerCase());
 
-    // Reset shared state (but keep cache)
+    // Clear previous results
     _restaurantsFromName.clear();
     _allRestaurantsMap.clear();
-    _restaurantsLoaded = false;
-    _menuItemsLoaded = false;
+    _hasItemMatchesForCurrentQuery = false;
 
-    // Search restaurants by name - use cache if available
-    Future<void> searchRestaurantsByName() async {
-      if (_currentSearchQuery != currentQuery) {
-        return; // Ignore stale results
-      }
+    try {
+      // Load all restaurants at once from Supabase
+      final allRestaurantsList = await _restaurantService.getAllRestaurants();
 
-      List<Map<String, dynamic>> allRestaurantsList;
-
-      // Use cache if available, otherwise load from stream
-      if (_allRestaurantsCache.isNotEmpty) {
-        allRestaurantsList = _allRestaurantsCache.values.toList();
-      } else {
-        // Load from stream and cache
-        final completer = Completer<List<Map<String, dynamic>>>();
-        _restaurantsSubscription = _restaurantService
-            .getAllRestaurants()
-            .listen((restaurants) {
-              if (!completer.isCompleted) {
-                // Update cache
-                for (final restaurant in restaurants) {
-                  final ownerId = (restaurant['ownerId'] as String? ?? '')
-                      .trim();
-                  if (ownerId.isNotEmpty) {
-                    _allRestaurantsCache[ownerId] = restaurant;
-                  }
-                }
-                completer.complete(restaurants);
-              }
-            });
-        allRestaurantsList = await completer.future;
-      }
-
-      // Check again if query changed
-      if (_currentSearchQuery != currentQuery) {
-        return; // Ignore stale results
-      }
-
-      _restaurantsFromName.clear();
-      _allRestaurantsMap.clear();
-
-      // Find restaurants that match by name
+      // Build caches: by owner_id and by restaurant id (so items can resolve via restaurant_id)
+      // When owner_id is null, key by restaurant id so search and cards still work
+      _allRestaurantsCache.clear();
+      _allRestaurantsByRestaurantId.clear();
       for (final restaurant in allRestaurantsList) {
-        if (_currentSearchQuery != currentQuery) {
-          return; // Ignore stale results
+        final rid = (restaurant['id'] ?? '').toString().trim();
+        if (rid.isNotEmpty) {
+          _allRestaurantsByRestaurantId[rid] = restaurant;
         }
-
-        final restaurantName = (restaurant['name'] ?? '')
+        final ownerId = (restaurant['owner_id'] ?? restaurant['ownerId'] ?? '')
             .toString()
-            .toLowerCase();
-        final normalizedRestaurantName = normalizeArabic(restaurantName);
+            .trim();
+        final cacheKey = ownerId.isNotEmpty ? ownerId : rid;
+        if (cacheKey.isNotEmpty) {
+          _allRestaurantsCache[cacheKey] = restaurant;
+        }
+      }
 
-        if (normalizedRestaurantName.contains(normalizedQuery)) {
-          final ownerId = (restaurant['ownerId'] as String? ?? '').trim();
-          if (ownerId.isNotEmpty) {
-            _restaurantsFromName[ownerId] = restaurant;
-            _allRestaurantsMap[ownerId] = restaurant;
+      // Empty query: show all restaurants with location filters
+      if (currentQuery.isEmpty) {
+        _applyLocationFiltersToRestaurants(List.from(allRestaurantsList));
+        return;
+      }
+
+      // Search by restaurant name (normalize both so "مطعم 1" matches "مطعم ١")
+      // Use owner_id as key when present, else restaurant id (your DB may have owner_id null)
+      for (final restaurant in allRestaurantsList) {
+        final rawName =
+            (restaurant['name'] ?? restaurant['restaurant_name'] ?? '')
+                .toString()
+                .trim();
+        if (rawName.isEmpty) continue;
+        final normalizedRestaurantName = normalizeArabic(rawName.toLowerCase());
+        final queryMatchesName = normalizedRestaurantName.contains(
+          normalizedQuery,
+        );
+        if (queryMatchesName) {
+          final ownerId =
+              (restaurant['owner_id'] ?? restaurant['ownerId'] ?? '')
+                  .toString()
+                  .trim();
+          final rid = (restaurant['id'] ?? '').toString().trim();
+          final key = ownerId.isNotEmpty ? ownerId : rid;
+          if (key.isNotEmpty) {
+            _restaurantsFromName[key] = restaurant;
+            _allRestaurantsMap[key] = restaurant;
           }
         }
       }
 
-      _restaurantsLoaded = true;
+      // If no restaurant name matched, show all (avoid empty screen) so user can still browse
+      if (_allRestaurantsMap.isEmpty) {
+        for (final restaurant in allRestaurantsList) {
+          final ownerId =
+              (restaurant['owner_id'] ?? restaurant['ownerId'] ?? '')
+                  .toString()
+                  .trim();
+          final rid = (restaurant['id'] ?? '').toString().trim();
+          final key = ownerId.isNotEmpty ? ownerId : rid;
+          if (key.isNotEmpty) {
+            _allRestaurantsMap[key] = restaurant;
+          }
+        }
+      }
+
+      // Search menu items by food name (optional; don't block showing restaurant name matches)
+      try {
+        final allItems = List<Map<String, dynamic>>.from(allMenuItems);
+        if (allItems.isNotEmpty) {
+          await _processMenuItemsSearch(
+            allItems,
+            currentQuery,
+            normalizedQuery,
+          );
+        } else {
+          final menuItems = await _menuService.getAllMenuItems();
+          await _processMenuItemsSearch(
+            menuItems,
+            currentQuery,
+            normalizedQuery,
+          );
+        }
+      } catch (e) {
+        print(
+          '[CustomerViewController] Menu items search error (continuing with restaurant matches): $e',
+        );
+      }
+
+      // Always apply results so UI updates (restaurant name matches + any item matches)
       _combineAndApplyResults(currentQuery);
+    } catch (e) {
+      print('[CustomerViewController] Error loading restaurants: $e');
+      isLoadingRestaurants.value = false;
+      // On error still try to show something: apply empty or last state
+      _applyLocationFiltersToRestaurants([]);
+    } finally {
+      isLoadingRestaurants.value = false;
     }
+  }
 
-    // Search menu items by food name - use already loaded items
-    Future<void> searchMenuItems() async {
-      // Check if this result is still relevant (query hasn't changed)
-      if (_currentSearchQuery != currentQuery) {
-        return; // Ignore stale results
-      }
-
-      // Use already loaded menu items instead of waiting for stream
-      final allItems = List<Map<String, dynamic>>.from(allMenuItems);
-      if (allItems.isEmpty) {
-        // If no items loaded yet, wait for stream (only once)
-        _searchMenuItemsSubscription?.cancel();
-        _searchMenuItemsSubscription = _menuService
-            .getAllMenuItemsStream()
-            .listen((items) async {
-              await _processMenuItemsSearch(
-                items,
-                currentQuery,
-                normalizedQuery,
-              );
-            });
-        return;
-      }
-
-      // Process immediately with loaded items
-      await _processMenuItemsSearch(allItems, currentQuery, normalizedQuery);
+  /// Resolve ownerId (or restaurant id as fallback) for a menu item so we can show the restaurant in search.
+  String _getOwnerIdForMenuItem(Map<String, dynamic> item) {
+    final ownerId = (item['ownerId'] as String? ?? '').toString().trim();
+    if (ownerId.isNotEmpty) return ownerId;
+    final restaurantId = (item['restaurant_id'] as String? ?? '').toString().trim();
+    if (restaurantId.isEmpty) return '';
+    // Prefer lookup by restaurant id map (has all restaurants)
+    final restaurant = _allRestaurantsByRestaurantId[restaurantId];
+    if (restaurant != null) {
+      final oid = (restaurant['owner_id'] ?? restaurant['ownerId'] ?? '').toString().trim();
+      return oid.isNotEmpty ? oid : restaurantId;
     }
-
-    // Run both searches in parallel
-    searchRestaurantsByName();
-    searchMenuItems();
+    for (final e in _allRestaurantsCache.entries) {
+      final rid = e.value['id']?.toString() ?? '';
+      if (rid == restaurantId) return e.key;
+    }
+    return '';
   }
 
   Future<void> _processMenuItemsSearch(
@@ -493,64 +639,67 @@ class CustomerViewController extends GetxController {
       return; // Ignore stale results
     }
 
-    // Pre-normalize query once
-    // Find items that match the food name - optimized with early exit
+    // Find items that match: item name, description, or category
     final matchingItems = <Map<String, dynamic>>[];
     for (final item in allItems) {
-      if (_currentSearchQuery != currentQuery) {
-        return; // Ignore stale results
-      }
+      if (_currentSearchQuery != currentQuery) return;
 
-      final itemName = (item['name'] ?? '').toString().toLowerCase();
-      final normalizedItemName = normalizeArabic(itemName);
-
-      // Check name first (most common match)
-      if (normalizedItemName.contains(normalizedQuery)) {
+      final itemName = (item['name'] ?? '').toString().trim().toLowerCase();
+      if (itemName.isNotEmpty &&
+          normalizeArabic(itemName).contains(normalizedQuery)) {
         matchingItems.add(item);
         continue;
       }
 
-      // Only check description if name doesn't match
       final itemDescription = (item['description'] ?? '')
           .toString()
+          .trim()
           .toLowerCase();
-      final normalizedItemDescription = normalizeArabic(itemDescription);
-      if (normalizedItemDescription.contains(normalizedQuery)) {
+      if (itemDescription.isNotEmpty &&
+          normalizeArabic(itemDescription).contains(normalizedQuery)) {
+        matchingItems.add(item);
+        continue;
+      }
+
+      final itemCategory = (item['category'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      if (itemCategory.isNotEmpty &&
+          normalizeArabic(itemCategory).contains(normalizedQuery)) {
         matchingItems.add(item);
       }
     }
 
-    // Check again if query changed during processing
     if (_currentSearchQuery != currentQuery) {
-      return; // Ignore stale results
+      return;
     }
 
-    // Group matching items by ownerId - use Map for O(1) lookup
+    // Group matching items by ownerId (resolve from restaurant_id if needed)
     final itemsByOwnerId = <String, List<Map<String, dynamic>>>{};
     for (final item in matchingItems) {
-      final ownerId = (item['ownerId'] as String? ?? '').trim();
+      final ownerId = _getOwnerIdForMenuItem(item);
       if (ownerId.isNotEmpty) {
         itemsByOwnerId.putIfAbsent(ownerId, () => []).add(item);
       }
     }
 
-    // Check again if query changed during processing
     if (_currentSearchQuery != currentQuery) {
-      return; // Ignore stale results
+      return;
     }
 
-    // For restaurants found by name, show all their items
-    // For restaurants found by food, show only matching items
+    // Mark whether this query actually matched any items
+    _hasItemMatchesForCurrentQuery = itemsByOwnerId.isNotEmpty;
+
     final finalItemsByOwnerId = <String, List<Map<String, dynamic>>>{};
 
     // Add all items for restaurants found by name
     for (final ownerId in _restaurantsFromName.keys) {
       if (_currentSearchQuery != currentQuery) {
-        return; // Ignore stale results
+        return;
       }
-      // Use cached items if available, otherwise filter from allItems
       final allRestaurantItems = allItems
-          .where((item) => (item['ownerId'] as String? ?? '').trim() == ownerId)
+          .where((item) => _getOwnerIdForMenuItem(item) == ownerId)
           .toList();
       if (allRestaurantItems.isNotEmpty) {
         finalItemsByOwnerId[ownerId] = allRestaurantItems;
@@ -573,33 +722,55 @@ class CustomerViewController extends GetxController {
         .where((ownerId) => !_restaurantsFromName.containsKey(ownerId))
         .toList();
 
-    // Use cache for all lookups - much faster
+    // Use cache for all lookups - key may be owner_id or restaurant_id
     for (final ownerId in ownerIdsToFetch) {
-      // Check if query changed
-      if (_currentSearchQuery != currentQuery) {
-        return; // Ignore stale results
-      }
+      if (_currentSearchQuery != currentQuery) return;
 
-      // Try to get from cache first (should be there from preload)
-      final cachedRestaurant = _allRestaurantsCache[ownerId];
+      final cachedRestaurant = _allRestaurantsCache[ownerId] ??
+          _allRestaurantsByRestaurantId[ownerId];
       if (cachedRestaurant != null) {
         _allRestaurantsMap[ownerId] = cachedRestaurant;
       } else {
         // Not in cache, fetch and cache it
         try {
+          print(
+            '[CustomerViewController] Fetching restaurant info for ownerId: $ownerId',
+          );
           final restaurantInfo = await _restaurantService
-              .getRestaurantInfoByOwnerId(ownerId);
-          if (restaurantInfo != null &&
-              (restaurantInfo['infoCompleted'] == true) &&
-              (restaurantInfo['status'] == 'active' ||
-                  restaurantInfo['status'] == null)) {
-            _allRestaurantsMap[ownerId] = {
-              'id': ownerId,
-              'ownerId': ownerId,
-              ...restaurantInfo,
-            };
-            // Update cache for future use
-            _allRestaurantsCache[ownerId] = _allRestaurantsMap[ownerId]!;
+              .getRestaurantByOwnerId(ownerId);
+          if (restaurantInfo != null) {
+            final infoCompleted =
+                restaurantInfo['info_completed'] ??
+                restaurantInfo['infoCompleted'] ??
+                false;
+            final status = restaurantInfo['status'] ?? '';
+
+            print(
+              '[CustomerViewController] Restaurant info for $ownerId: infoCompleted=$infoCompleted, status=$status',
+            );
+
+            // Only include restaurants that are active and completed
+            if (infoCompleted == true &&
+                (status == 'active' || status.toString().isEmpty)) {
+              _allRestaurantsMap[ownerId] = {
+                'id': restaurantInfo['id'] ?? ownerId,
+                'ownerId': ownerId,
+                ...restaurantInfo,
+              };
+              // Update cache for future use
+              _allRestaurantsCache[ownerId] = _allRestaurantsMap[ownerId]!;
+              print(
+                '[CustomerViewController] Added restaurant to map: ${restaurantInfo['name']}',
+              );
+            } else {
+              print(
+                '[CustomerViewController] Skipping restaurant $ownerId: not active or not completed',
+              );
+            }
+          } else {
+            print(
+              '[CustomerViewController] No restaurant info found for ownerId: $ownerId',
+            );
           }
         } catch (e) {
           // ignore: avoid_print
@@ -608,54 +779,109 @@ class CustomerViewController extends GetxController {
       }
     }
 
-    _menuItemsLoaded = true;
     _combineAndApplyResults(currentQuery);
   }
 
   // Helper method to combine and apply search results
   void _combineAndApplyResults(String currentQuery) {
-    if (!_restaurantsLoaded || !_menuItemsLoaded) {
-      return; // Wait for both to complete
-    }
-
     if (_currentSearchQuery != currentQuery) {
       return; // Ignore stale results
     }
 
-    // Apply location filters
+    // If the query matched any menu items, only show restaurants
+    // that have matching items. If there are no item matches, fall
+    // back to restaurant-name (and fallback) results.
+    Iterable<Map<String, dynamic>> sourceRestaurants;
+    if (_hasItemMatchesForCurrentQuery &&
+        restaurantMatchingItems.isNotEmpty) {
+      final allowedOwnerIds = restaurantMatchingItems.keys.toSet();
+      sourceRestaurants = _allRestaurantsMap.entries
+          .where((entry) => allowedOwnerIds.contains(entry.key))
+          .map((entry) => entry.value);
+    } else {
+      sourceRestaurants = _allRestaurantsMap.values;
+    }
+
     final allRestaurants = <Map<String, dynamic>>[];
-    for (final restaurant in _allRestaurantsMap.values) {
-      final ownerId = restaurant['ownerId'] as String? ?? '';
-      if (ownerId.isNotEmpty) {
+    for (final restaurant in sourceRestaurants) {
+      final ownerId = (restaurant['owner_id'] ?? restaurant['ownerId'] ?? '')
+          .toString()
+          .trim();
+      final rid = (restaurant['id'] ?? '').toString().trim();
+      if (ownerId.isNotEmpty || rid.isNotEmpty) {
         allRestaurants.add(restaurant);
       }
     }
-
+    print(
+      '[CustomerViewController] _combineAndApplyResults: ${allRestaurants.length} restaurants for query "$currentQuery"',
+    );
     _applyLocationFiltersToRestaurants(allRestaurants);
   }
 
   void _applyLocationFiltersToRestaurants(
     List<Map<String, dynamic>> restaurants,
   ) {
+    print(
+      '[CustomerViewController] _applyLocationFiltersToRestaurants called with ${restaurants.length} restaurants',
+    );
+    print(
+      '[CustomerViewController] Current filters - Governorate: ${selectedGovernorate.value}, City: ${selectedCity.value}',
+    );
     List<Map<String, dynamic>> filtered = List.from(restaurants);
 
-    // Apply governorate filter
+    // Apply governorate filter (support both governorate key from API)
     if (selectedGovernorate.value != null) {
+      print(
+        '[CustomerViewController] Applying governorate filter: ${selectedGovernorate.value}',
+      );
       filtered = filtered.where((restaurant) {
         final gov = (restaurant['governorate'] ?? '').toString();
-        return gov == selectedGovernorate.value;
+        final matches = gov == selectedGovernorate.value;
+        if (!matches) {
+          print(
+            '[CustomerViewController]   Filtered out: ${restaurant['name']} (governorate: $gov)',
+          );
+        }
+        return matches;
       }).toList();
+      print(
+        '[CustomerViewController] After governorate filter: ${filtered.length} restaurants',
+      );
     }
 
     // Apply city filter
     if (selectedCity.value != null) {
+      print(
+        '[CustomerViewController] Applying city filter: ${selectedCity.value}',
+      );
       filtered = filtered.where((restaurant) {
         final city = (restaurant['city'] ?? '').toString();
-        return city == selectedCity.value;
+        final matches = city == selectedCity.value;
+        if (!matches) {
+          print(
+            '[CustomerViewController]   Filtered out: ${restaurant['name']} (city: $city)',
+          );
+        }
+        return matches;
       }).toList();
+      print(
+        '[CustomerViewController] After city filter: ${filtered.length} restaurants',
+      );
     }
 
-    filteredRestaurants.value = filtered;
+    print(
+      '[CustomerViewController] Final filtered restaurants: ${filtered.length}',
+    );
+    for (final restaurant in filtered) {
+      print(
+        '[CustomerViewController]   - ${restaurant['name']} (${restaurant['governorate']}, ${restaurant['city']})',
+      );
+    }
+
+    filteredRestaurants.assignAll(filtered);
     isLoadingRestaurants.value = false;
+    print(
+      '[CustomerViewController] Updated filteredRestaurants.value to ${filteredRestaurants.length} restaurants',
+    );
   }
 }

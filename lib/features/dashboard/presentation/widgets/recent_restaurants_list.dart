@@ -43,17 +43,21 @@ class RecentRestaurantsList extends StatelessWidget {
       );
     }
 
+    // Limit restaurants to prevent overflow (max 5 restaurants)
+    final limitedRestaurants = restaurants.take(5).toList();
+    
     return Container(
+      height: (limitedRestaurants.length * 80.0).clamp(80.0, isDesktop ? 400.0 : (isTablet ? 350.0 : 300.0)),
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
       ),
       child: ListView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: restaurants.length,
+        shrinkWrap: false,
+        physics: const ClampingScrollPhysics(),
+        itemCount: limitedRestaurants.length,
         itemBuilder: (context, index) {
-          final restaurant = restaurants[index];
+          final restaurant = limitedRestaurants[index];
           final restaurantName = restaurant['name'] ?? 'مطعم بدون اسم';
           final restaurantStatus = restaurant['status'] ?? 'غير محدد';
           final restaurantLogo = restaurant['logoPath'] ?? '';
